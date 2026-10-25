@@ -413,6 +413,8 @@ apply one batch-wide threshold; it is not part of the request grouping.
 
 `Answer.JevConfidence()` is Python's `jev_confidence`: the `confidence` Jev would report for the answer's
 (rounded) probabilities, `null` for noul answers and malformed probabilities.
+It sums the probabilities as CPython 3.12 and later do (`sum()` of floats is compensated from 3.12 on), so its
+last digits match laya on Python 3.12+, not on 3.10 or 3.11; the goldens are recorded with 3.12.
 
 ---
 
