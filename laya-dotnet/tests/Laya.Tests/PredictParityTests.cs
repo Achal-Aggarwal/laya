@@ -131,6 +131,7 @@ public sealed partial class PredictParityTests(AllEnginesFixture fixture)
     /// Not run in CI or locally until an <c>onnx-split/</c> export exists — see the class remarks.
     /// </summary>
     [Theory]
+    [Trait(TestArtifacts.LayoutTrait, TestArtifacts.SplitOnly)]
     [MemberData(nameof(AllSuccessCasesSplit))]
     public void ReproducesTheRecordedAnswersSplit(LayaCheckpoint checkpoint, GoldenCaseInfo info)
     {

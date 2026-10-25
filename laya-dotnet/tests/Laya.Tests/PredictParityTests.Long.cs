@@ -9,7 +9,7 @@ public sealed partial class PredictParityTests
         from checkpoint in TestArtifacts.ParityCheckpoints
         where GoldenData.For(checkpoint).Available
         from info in GoldenData.For(checkpoint).Index.Where(i => i.Kind == "long" && !i.ExpectsError)
-        from split in new[] { false, true }
+        from split in TestArtifacts.ParitySplitFlags
         select new object[] { checkpoint, info, split };
 
     public static IEnumerable<object[]> LongErrorCases() =>
@@ -19,6 +19,7 @@ public sealed partial class PredictParityTests
         select new object[] { checkpoint, info };
 
     [Theory]
+    [Trait(TestArtifacts.LayoutTrait, TestArtifacts.AnyLayout)]
     [MemberData(nameof(LongSuccessCases))]
     public void ReproducesLongPredictions(LayaCheckpoint checkpoint, GoldenCaseInfo info, bool split)
     {

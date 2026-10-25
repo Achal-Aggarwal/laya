@@ -9,7 +9,7 @@ public sealed partial class PredictParityTests
         from checkpoint in TestArtifacts.ParityCheckpoints
         where GoldenData.For(checkpoint).Available
         from info in GoldenData.For(checkpoint).Index.Where(i => i.Kind == "batch" && !i.ExpectsError)
-        from split in new[] { false, true }
+        from split in TestArtifacts.ParitySplitFlags
         select new object[] { checkpoint, info, split };
 
     public static IEnumerable<object[]> BatchErrorCases() =>
@@ -29,6 +29,7 @@ public sealed partial class PredictParityTests
         [.. root.GetProperty("states").EnumerateArray().Select(GoldenData.ToClr)];
 
     [Theory]
+    [Trait(TestArtifacts.LayoutTrait, TestArtifacts.AnyLayout)]
     [MemberData(nameof(BatchSuccessCases))]
     public void ReproducesBatchPredictions(LayaCheckpoint checkpoint, GoldenCaseInfo info, bool split)
     {
