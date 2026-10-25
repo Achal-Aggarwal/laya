@@ -918,6 +918,8 @@ result = agent.predict_long(state, questions, hooks=[AuditLog()])   # the scan, 
   reported when the scan reached inference unchanged. A hook that means to answer the document
   calls `ctx.skip(...)` instead: its result comes back with no `answer["window"]` and
   `usage["windows"]` at 0, because no window scored it.
+  End-hook result reordering keeps an unchanged answer's original span; cloned, replaced or edited
+  answers omit attribution. Reliability annotations are retained.
 
 A smaller `window` isolates a short deciding span better (it becomes a larger fraction of its
 window); the default (`max(64, max_len - head_max_len - 8)` — 312 tokens on the English checkpoint
