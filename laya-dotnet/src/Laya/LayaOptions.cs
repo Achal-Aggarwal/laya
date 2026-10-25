@@ -143,6 +143,23 @@ public sealed class LayaOptions
     /// </summary>
     public IProgress<ArtifactDownloadProgress>? DownloadProgress { get; set; }
 
+    /// <summary>
+    /// Per-language temperature overrides, Python's <c>lang_temperatures</c> constructor option: a table from language
+    /// code to <see cref="LayaLangTemperature"/>, or <see langword="null"/> for a language that inherits the checkpoint's
+    /// own temperatures. A call that names a language through <see cref="LayaPredictOptions.Lang"/> (or a router that
+    /// detected one) replaces the checkpoint's temperature, and its per-bucket map, with that language's. Keys are
+    /// matched as Python matches them, on the part before the first <c>-</c>, lower-cased (<c>"de-AT"</c> and
+    /// <c>"DE"</c> are <c>"de"</c>), and the last of several keys that collapse to the same language wins; a table
+    /// given as a list of pairs keeps that order. Default <see langword="null"/>: no overrides.
+    /// </summary>
+    /// <remarks>
+    /// Checked when the engine is created, not when it is set. A malformed entry makes <see cref="LayaEngine.Create"/>
+    /// throw an <see cref="ArgumentException"/> carrying Python's <c>ValueError</c> text, and a value the clamp had to
+    /// replace is reported once per language through <see cref="System.Diagnostics.Trace"/>, as the checkpoint's own
+    /// temperatures are. A <see cref="LayaRouter"/> hands this table to every engine it builds.
+    /// </remarks>
+    public IEnumerable<KeyValuePair<string, LayaLangTemperature?>>? LangTemperatures { get; set; }
+
     // ── internal helpers ──────────────────────────────────────────────────────
 
     /// <summary>

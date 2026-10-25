@@ -28,9 +28,15 @@ public sealed partial class PredictParityTests
         var state = GoldenData.ToClr(root.GetProperty("state"))!;
         var questions = GoldenData.BuildQuestions(root.GetProperty("questions"));
         var options = root.GetProperty("options");
-        var got = engine.PredictLong(state, questions, LongInt(options, "window"), LongInt(options, "stride"),
-            options.TryGetProperty("aggregate", out var aggregate) ? aggregate.GetString()! : "auto",
-            LongInt(options, "batch_size"));
+        var lang = CallOptions.Lang(options);
+        var got = engine.PredictLong(state, questions, new LayaLongOptions
+        {
+            Window = LongInt(options, "window"),
+            Stride = LongInt(options, "stride"),
+            Aggregate = options.TryGetProperty("aggregate", out var aggregate) ? aggregate.GetString()! : "auto",
+            BatchSize = LongInt(options, "batch_size"),
+            Lang = lang,
+        });
         var expected = root.GetProperty("result");
         // The SDK keeps its existing model identifier instead of Python ONNXAgent's suffix.
         Assert.Equal("laya-rl-agent-onnx", expected.GetProperty("model").GetString());
@@ -92,7 +98,7 @@ public sealed partial class PredictParityTests
         }
         if (got.Usage.Windows == 1 && questions.Count > 0)
         {
-            var plain = engine.Predict(state, questions);
+            var plain = engine.Predict(state, questions, new LayaPredictOptions { Lang = lang });
             Assert.Equal(plain.Usage.InputTokens, got.Usage.InputTokens);
             foreach (var id in questions.Ids)
             {

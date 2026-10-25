@@ -28,7 +28,7 @@ namespace Laya;
 /// layout is loaded.
 /// </para>
 /// </remarks>
-public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPredictor
+public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatchPredictor, ILayaCallPredictor, ILayaLangTemperatures
 {
     private const string ModelName = "laya-rl-agent";
 
@@ -40,12 +40,14 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
     private readonly HfTokenizer _tokenizer;
     private readonly bool _ownsTokenizer;
     private readonly Lock _tokenizerGate = new();
+    private readonly IReadOnlyDictionary<string, ResolvedLangTemperature> _langTemperatures;
     // 0 = live, 1 = disposed; int so Interlocked.Exchange can operate on it.
     private int _disposed;
 
     private LayaEngine(InferenceSession? fusedSession, InferenceSession? encoderSession,
                        InferenceSession? headSession, HfTokenizer tokenizer, bool ownsTokenizer,
-                       LayaConfig config, ModelArtifacts artifacts)
+                       LayaConfig config, ModelArtifacts artifacts,
+                       IReadOnlyDictionary<string, ResolvedLangTemperature> langTemperatures)
     {
         _fusedSession = fusedSession;
         _encoderSession = encoderSession;
@@ -54,6 +56,7 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
         _ownsTokenizer = ownsTokenizer;
         Config = config;
         Artifacts = artifacts;
+        _langTemperatures = langTemperatures;
     }
 
     /// <summary>The loaded checkpoint's configuration.</summary>
@@ -61,6 +64,12 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
 
     /// <summary>Where the loaded artifacts came from.</summary>
     public ModelArtifacts Artifacts { get; }
+
+    /// <summary>
+    /// Whether <see cref="LayaOptions.LangTemperatures"/> named at least one language. Python's
+    /// <c>agent.lang_temperatures</c> being non-empty; a router splits a batch by language only for such an engine.
+    /// </summary>
+    public bool HasLangTemperatures => _langTemperatures.Count > 0;
 
     /// <summary>
     /// Which checkpoint variant was loaded, or <see langword="null"/> when loaded from an
@@ -77,12 +86,19 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
     /// When the loaded config's encoder contradicts the expected encoder for the requested
     /// <see cref="LayaOptions.Checkpoint"/> — indicates the wrong artifact was loaded.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    /// When <see cref="LayaOptions.LangTemperatures"/> holds a language whose temperature is not three values, with
+    /// Python's <c>ValueError</c> text.
+    /// </exception>
     [WarnSite, MethodImpl(MethodImplOptions.NoInlining)]
     public static LayaEngine Create(LayaOptions? options = null)
     {
         options ??= new LayaOptions();
         var artifacts = ModelArtifacts.Resolve(options);
-        var config = LayaConfig.Load(artifacts.ConfigPath);
+        // onnx_agent.py:249: resolved against the checkpoint's own temperature list, between reading it and warning about it.
+        IReadOnlyDictionary<string, ResolvedLangTemperature> langTemperatures = new Dictionary<string, ResolvedLangTemperature>();
+        var config = LayaConfig.Load(artifacts.ConfigPath, loaded =>
+            langTemperatures = LangTemperatures.Resolve(options.LangTemperatures, loaded.TemperatureSource, loaded.Temperature));
 
         // When the checkpoint was resolved via a checkpoint-aware path (LAYA_ONNX_ROOT, cache,
         // or download), validate that the artifact's encoder agrees. A mismatch here means the
@@ -115,7 +131,7 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
 
             tokenizer = new HfTokenizer(artifacts.TokenizerPath);
             return new LayaEngine(fusedSession, encoderSession, headSession,
-                tokenizer, ownsTokenizer: true, config, artifacts);
+                tokenizer, ownsTokenizer: true, config, artifacts, langTemperatures);
         }
         catch
         {
@@ -194,28 +210,36 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
     /// If a question's options cannot fit the head budget, rather than answering a silently
     /// truncated question.
     /// </exception>
-    public LayaResult Predict(object? state, QuestionSet questions)
+    public LayaResult Predict(object? state, QuestionSet questions) => PredictOne(state, questions, default);
+
+    private LayaResult PredictOne(object? state, QuestionSet questions, CallSettings call)
     {
         StateGuard.NotNull(state);
         ArgumentNullException.ThrowIfNull(questions);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
         // Python's system_one is predict_batch([state]): no questions is an empty answer set, not an error,
         // and the usage carries the same truncation diagnostics.
-        return PredictStates([state], questions, diagnostics: true)[0];
+        return PredictStates([state], questions, diagnostics: true, call)[0];
     }
+
+    /// <summary>The per-call arguments of Python's <c>system_one</c> / <c>predict_batch</c> that reach the decode.</summary>
+    private readonly record struct CallSettings(string? Lang = null, int? MaxLen = null, int? HeadMaxLen = null);
 
     /// <summary>
     /// <see cref="Predict(object?, QuestionSet)"/> with per-call options. Ports the <c>min_confidence</c>
     /// argument of Python's <c>system_one</c>: with <see cref="LayaPredictOptions.MinConfidence"/> set, every answer
     /// reports <see cref="Answer.Abstention"/> and <see cref="Answer.AbstentionThreshold"/>, and carries
     /// <see cref="Answer.LowConfidence"/> when it falls below the threshold. The threshold is validated before
-    /// anything else, as in Python, where it is the first thing <c>predict_batch</c> checks.
+    /// anything else, as in Python, where it is the first thing <c>predict_batch</c> checks. Also ports the
+    /// <c>lang</c>, <c>max_len</c> and <c>head_max_len</c> arguments: see <see cref="LayaPredictOptions.Lang"/>,
+    /// <see cref="LayaPredictOptions.MaxLen"/> and <see cref="LayaPredictOptions.HeadMaxLen"/>.
     /// </summary>
-    /// <exception cref="ArgumentException">The threshold is invalid, with Python's <c>ValueError</c> text.</exception>
+    /// <exception cref="ArgumentException">The threshold is invalid, with Python's <c>ValueError</c> text; or a token
+    /// budget leaves a question's options no room (the same error as a checkpoint whose own budget is too small).</exception>
     public LayaResult Predict(object? state, QuestionSet questions, LayaPredictOptions? options)
     {
         var gate = options?.MinConfidence?.Check();
-        var result = Predict(state, questions);
+        var result = PredictOne(state, questions, new(options?.Lang, options?.MaxLen, options?.HeadMaxLen));
         return gate is { } g ? ConfidenceGate.Apply(result, g) : result;
     }
 
@@ -237,7 +261,21 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
     /// <exception cref="ArgumentException">Unsupported aggregation, a gap-causing stride, or no state room.</exception>
     [WarnSite, MethodImpl(MethodImplOptions.NoInlining)]
     public LayaResult PredictLong(object state, QuestionSet questions, int? window = null, int? stride = null,
-                                  string aggregate = "auto", int? batchSize = null)
+                                  string aggregate = "auto", int? batchSize = null) =>
+        PredictLongCore(state, questions, window, stride, aggregate, batchSize, lang: null);
+
+    /// <summary>
+    /// <see cref="PredictLong(object, QuestionSet, int?, int?, string, int?)"/> with the per-call language of
+    /// Python's <c>predict_long(lang=...)</c>, applied to every window (and to the single pass a short state takes);
+    /// see <see cref="LayaLongOptions"/>. <see langword="null"/> options are the defaults of the other overload.
+    /// </summary>
+    [WarnSite, MethodImpl(MethodImplOptions.NoInlining)]
+    public LayaResult PredictLong(object state, QuestionSet questions, LayaLongOptions? options) =>
+        PredictLongCore(state, questions, options?.Window, options?.Stride, options?.Aggregate ?? "auto",
+                        options?.BatchSize, options?.Lang);
+
+    private LayaResult PredictLongCore(object state, QuestionSet questions, int? window, int? stride,
+                                       string aggregate, int? batchSize, string? lang)
     {
         StateGuard.NotNull(state);
         ArgumentNullException.ThrowIfNull(questions);
@@ -257,7 +295,7 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
         // force a scan there; an explicit window still bounds the single pass (Python 3e9bda30).
         if (stateIds.Length <= (window is > 0 ? budget : room))
         {
-            var single = PredictStates([state], questions, diagnostics: true)[0];
+            var single = PredictStates([state], questions, diagnostics: true, new(lang))[0];
             return new LayaResult(ModelName, [.. single.Ids],
                 single.Ids.ToDictionary(id => id, id => single[id], StringComparer.Ordinal),
                 single.Usage with { Windows = 1 });
@@ -272,7 +310,7 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
         var results = new List<LayaResult>(spans.Count);
         for (var i = 0; i < windows.Count; i += cap)
             results.AddRange(PredictStates(windows.GetRange(i, Math.Min(cap, windows.Count - i)),
-                                           questions, diagnostics: true));
+                                           questions, diagnostics: true, new(lang)));
         return LongPrediction.Aggregate(questions, results, spans);
     }
 
@@ -310,27 +348,31 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
         foreach (var state in list) StateGuard.NotNull(state);
         // onnx_agent.py:415: an empty list answers [] without looking at the questions.
         if (list.Length == 0) return [];
-        if (questions.Count == 0) return PredictStates(list, questions, diagnostics: true);
+        var call = new CallSettings(options?.Lang, options?.MaxLen, options?.HeadMaxLen);
+        if (questions.Count == 0) return PredictStates(list, questions, diagnostics: true, call);
         return BatchPlanning.Execute<EncodedState, LayaResult>(
             list, options?.BatchSize, options?.SortByLength ?? false,
-            part => EncodeStates(part, questions),
+            part => EncodeStates(part, questions, call),
             encoded => encoded.Items.Max(item => item.Ids.Length),
-            chunk => InferStates(chunk, questions, diagnostics: true));
+            chunk => InferStates(chunk, questions, diagnostics: true, call.Lang));
     }
 
     private sealed record EncodedState(SequenceItem[] Items, SequenceBuilder.SequenceDetails[] Details);
 
     private IReadOnlyList<LayaResult> PredictStates(
-        IReadOnlyList<object?> states, QuestionSet questions, bool diagnostics)
+        IReadOnlyList<object?> states, QuestionSet questions, bool diagnostics, CallSettings call)
     {
         if (questions.Count == 0)
             return states.Select(_ => new LayaResult(ModelName, [], new(StringComparer.Ordinal), new Usage(0, 0))).ToArray();
-        return InferStates(EncodeStates(states, questions), questions, diagnostics);
+        return InferStates(EncodeStates(states, questions, call), questions, diagnostics, call.Lang);
     }
 
-    private IReadOnlyList<EncodedState> EncodeStates(IReadOnlyList<object?> states, QuestionSet questions)
+    private IReadOnlyList<EncodedState> EncodeStates(IReadOnlyList<object?> states, QuestionSet questions, CallSettings call)
     {
         var ids = questions.Ids;
+        // onnx_agent.py:807: the call's budgets, else the checkpoint's own.
+        var maxLen = call.MaxLen ?? Config.MaxLen;
+        var headMaxLen = call.HeadMaxLen ?? Config.HeadMaxLen;
         var encoded = new List<EncodedState>(states.Count);
 
         // A chronological conversation list is serialized newest-last, so right-truncation
@@ -354,14 +396,14 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
                 {
                     var question = questions[id];
                     var built = SequenceBuilder.BuildDetailed(
-                        _tokenizer, state, question, Config.MaxLen, Config.HeadMaxLen, truncateLeft, stateIds);
+                        _tokenizer, state, question, maxLen, headMaxLen, truncateLeft, stateIds);
                     var (seq, markers) = (built.Ids, built.Markers);
 
                     // A dropped marker would score an unrelated token at position 0.
                     if (markers.Length != SequenceBuilder.RenderOptions(question).Count)
                         throw new ArgumentException(
                             $"question '{id}': only {markers.Length} of its {SequenceBuilder.RenderOptions(question).Count} "
-                            + $"option markers fit in max_len={Config.MaxLen} with head_max_len={Config.HeadMaxLen} "
+                            + $"option markers fit in max_len={maxLen} with head_max_len={headMaxLen} "
                             + "spent on the question; lower head_max_len, raise max_len, or use fewer options", nameof(questions));
 
                     items.Add(new SequenceItem(seq, markers, question.Type));
@@ -374,7 +416,7 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
     }
 
     private IReadOnlyList<LayaResult> InferStates(
-        IReadOnlyList<EncodedState> encoded, QuestionSet questions, bool diagnostics)
+        IReadOnlyList<EncodedState> encoded, QuestionSet questions, bool diagnostics, string? lang)
     {
         var ids = questions.Ids;
         var states = encoded;
@@ -399,6 +441,13 @@ public sealed class LayaEngine : IDisposable, ILayaLongPredictor, ILayaBatchPred
                 var question = questions[ids[q]];
                 var k = batch.MarkerCounts[row];
                 var temperature = Calibration.ResolveTemperature(Config, question.Type, k);
+                // onnx_agent.py:728-731: a language the table holds replaces both the checkpoint's bucket map and its
+                // per-type temperature, with no fallback to either. The binning skip of onnx_agent.py:743 has nothing
+                // to skip here: `load_calibration` and its binning map are not ported.
+                if (LangTemperatures.Find(_langTemperatures, lang) is { } langTemperature)
+                    temperature = langTemperature.TemperatureByOptions.TryGetValue(Calibration.TempBucket(question.Type, k), out var byBucket)
+                        ? byBucket
+                        : langTemperature.Temperature[(int)question.Type];
                 var rowLogits = logits.AsSpan(row * batch.MarkerCount, batch.MarkerCount);
                 var p = Calibration.Probabilities(rowLogits, k, temperature);
 
