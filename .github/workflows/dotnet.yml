@@ -73,9 +73,37 @@ jobs:
         run: |
           git --no-pager diff --stat -- "$GOLDEN"
           git status --short -- "$GOLDEN"
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      # setup-dotnet downloads the SDK global.json resolves to from Microsoft's storage, which
+      # intermittently answers HTTP 409 (2026-10-25: #1324 and main, several jobs in one hour). Retry
+      # once after a pause, then fall back to the runner image's own .NET 10 SDK, which global.json
+      # (10.0.100, rollForward latestFeature) accepts; fail with a clear message only if neither works.
+      - id: setup_dotnet
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        continue-on-error: true
         with:
           global-json-file: laya-dotnet/global.json
+      - name: Wait before retrying the .NET SDK download
+        if: ${{ steps.setup_dotnet.outcome == 'failure' }}
+        run: sleep 60
+      - id: setup_dotnet_retry
+        if: ${{ steps.setup_dotnet.outcome == 'failure' }}
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        continue-on-error: true
+        with:
+          global-json-file: laya-dotnet/global.json
+      - name: Fall back to the runner's .NET 10 SDK
+        if: ${{ steps.setup_dotnet.outcome == 'failure' && steps.setup_dotnet_retry.outcome == 'failure' }}
+        working-directory: laya-dotnet
+        run: |
+          echo "::warning::setup-dotnet could not download the SDK twice (Microsoft storage); trying the runner's own SDK"
+          dotnet --list-sdks || true
+          if ! dotnet --version; then
+            echo "::error::No .NET 10 SDK: the download failed twice and the runner's SDK does not satisfy global.json. Re-run the job."
+            exit 1
+          fi
+      - name: .NET SDK in use
+        working-directory: laya-dotnet
+        run: dotnet --version
       - name: Build (library, samples and tests, warnings are errors)
         working-directory: laya-dotnet
         run: dotnet build Laya.slnx -c Release
@@ -289,9 +317,37 @@ jobs:
           git --no-pager diff --stat -- "$GOLDEN"
           git status --short -- "$GOLDEN"
 
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      # setup-dotnet downloads the SDK global.json resolves to from Microsoft's storage, which
+      # intermittently answers HTTP 409 (2026-10-25: #1324 and main, several jobs in one hour). Retry
+      # once after a pause, then fall back to the runner image's own .NET 10 SDK, which global.json
+      # (10.0.100, rollForward latestFeature) accepts; fail with a clear message only if neither works.
+      - id: setup_dotnet
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        continue-on-error: true
         with:
           global-json-file: laya-dotnet/global.json
+      - name: Wait before retrying the .NET SDK download
+        if: ${{ steps.setup_dotnet.outcome == 'failure' }}
+        run: sleep 60
+      - id: setup_dotnet_retry
+        if: ${{ steps.setup_dotnet.outcome == 'failure' }}
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        continue-on-error: true
+        with:
+          global-json-file: laya-dotnet/global.json
+      - name: Fall back to the runner's .NET 10 SDK
+        if: ${{ steps.setup_dotnet.outcome == 'failure' && steps.setup_dotnet_retry.outcome == 'failure' }}
+        working-directory: laya-dotnet
+        run: |
+          echo "::warning::setup-dotnet could not download the SDK twice (Microsoft storage); trying the runner's own SDK"
+          dotnet --list-sdks || true
+          if ! dotnet --version; then
+            echo "::error::No .NET 10 SDK: the download failed twice and the runner's SDK does not satisfy global.json. Re-run the job."
+            exit 1
+          fi
+      - name: .NET SDK in use
+        working-directory: laya-dotnet
+        run: dotnet --version
       # The fused layout is found through LAYA_ONNX_ROOT; the split layout through the test
       # project's walk-up to <repo>/onnx-split, which is where the script wrote it.
       - name: Run the tests against the fresh goldens
