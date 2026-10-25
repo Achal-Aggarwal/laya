@@ -277,7 +277,10 @@ fn rejects_the_same_questions_python_rejects() {
             let expected_message = root["error_message"].as_str().unwrap();
             let actual_message = error.to_string();
             // A rejected threshold is Python's ValueError text, whole.
-            if root.get("options").is_some() {
+            if root
+                .get("options")
+                .is_some_and(|options| options.get("min_confidence").is_some())
+            {
                 assert!(
                     matches!(error, LayaError::InvalidMinConfidence(_)),
                     "{}/{case}: expected LayaError::InvalidMinConfidence, got {error:?}",

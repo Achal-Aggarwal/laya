@@ -10,9 +10,21 @@
 //! 2 test file) to guarantee only one engine total is ever loaded.
 
 use laya::LayaEngine;
-use laya::laya_options::LayaCheckpoint;
+use laya::laya_options::{LayaCheckpoint, LayaOptions};
 
+use super::golden_data::CheckpointGoldenData;
 use super::test_artifacts;
+
+/// The engine options for an artifact directory: the directory, plus the `lang_temperatures`
+/// table the checkpoint's goldens were recorded with, so the per-language cases run on an engine
+/// built as Python's agent was.
+fn options_for(checkpoint: LayaCheckpoint, dir: &std::path::Path) -> LayaOptions {
+    LayaOptions {
+        model_directory: Some(dir.to_path_buf()),
+        lang_temperatures: CheckpointGoldenData::for_checkpoint(checkpoint.subdir()).lang_table(),
+        ..Default::default()
+    }
+}
 
 /// Every checkpoint, in the order golden data and shape-sweep tables list them.
 pub const CHECKPOINTS: [LayaCheckpoint; 3] = [
@@ -39,13 +51,15 @@ pub fn load(checkpoint: LayaCheckpoint) -> Option<LayaEngine> {
             checkpoint.subdir()
         )
     });
-    Some(LayaEngine::from_directory(&dir).unwrap_or_else(|e| {
-        panic!(
-            "failed to load engine for '{}' at {}: {e}",
-            checkpoint.subdir(),
-            dir.display()
-        )
-    }))
+    Some(
+        LayaEngine::create(options_for(checkpoint, &dir)).unwrap_or_else(|e| {
+            panic!(
+                "failed to load engine for '{}' at {}: {e}",
+                checkpoint.subdir(),
+                dir.display()
+            )
+        }),
+    )
 }
 
 /// Loads the engine for `checkpoint` from its split-layout export (`<repo>/onnx-split/<ckpt>`,
@@ -73,11 +87,13 @@ pub fn load_split(checkpoint: LayaCheckpoint) -> Option<LayaEngine> {
             checkpoint.subdir()
         )
     });
-    Some(LayaEngine::from_directory(&dir).unwrap_or_else(|e| {
-        panic!(
-            "failed to load split-layout engine for '{}' at {}: {e}",
-            checkpoint.subdir(),
-            dir.display()
-        )
-    }))
+    Some(
+        LayaEngine::create(options_for(checkpoint, &dir)).unwrap_or_else(|e| {
+            panic!(
+                "failed to load split-layout engine for '{}' at {}: {e}",
+                checkpoint.subdir(),
+                dir.display()
+            )
+        }),
+    )
 }

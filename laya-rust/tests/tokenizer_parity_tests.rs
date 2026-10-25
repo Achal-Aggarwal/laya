@@ -202,12 +202,21 @@ fn builds_the_recorded_sequence_for_every_question() {
         }
 
         let meta = golden.meta();
-        let max_len = meta["max_len"].as_u64().unwrap() as usize;
-        let head_max_len = meta["head_max_len"].as_u64().unwrap() as usize;
+        let config_max_len = meta["max_len"].as_i64().unwrap();
+        let config_head_max_len = meta["head_max_len"].as_i64().unwrap();
 
         for case in golden.success_cases() {
             let root = golden.load_case(&case);
             let state = root["state"].clone();
+            // A case that passes its own token budget was recorded with it
+            // (Python: system_one(max_len=...)); a bool is the int 0 or 1.
+            let budget = |name: &str, fallback: i64| match &root["options"][name] {
+                Value::Bool(b) => i64::from(*b),
+                Value::Number(n) => n.as_i64().expect("integer budget"),
+                _ => fallback,
+            };
+            let max_len = budget("max_len", config_max_len);
+            let head_max_len = budget("head_max_len", config_head_max_len);
             let questions = golden_data::build_questions(&root["questions"]).unwrap_or_else(|e| {
                 panic!(
                     "{}/{case}: failed to build questions: {e}",
@@ -247,11 +256,17 @@ fn builds_the_recorded_sequence_for_every_question() {
                     checkpoint.subdir()
                 );
 
-                let (ids, markers) =
-                    SequenceBuilder::build(&tok, &state, question, max_len, head_max_len, false)
-                        .unwrap_or_else(|e| {
-                            panic!("{}/{case}/{id}: build failed: {e}", checkpoint.subdir())
-                        });
+                let (ids, markers) = SequenceBuilder::build_signed(
+                    &tok,
+                    &state,
+                    question,
+                    max_len,
+                    head_max_len,
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    panic!("{}/{case}/{id}: build failed: {e}", checkpoint.subdir())
+                });
 
                 assert_eq!(
                     golden_data::indices(&recorded["markers"]),
