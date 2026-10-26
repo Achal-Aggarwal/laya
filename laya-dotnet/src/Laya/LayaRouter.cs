@@ -28,7 +28,7 @@ public sealed class LayaRouterOptions
     /// <summary>
     /// Template used to build each checkpoint's <see cref="LayaEngine"/>: execution provider,
     /// thread counts, <see cref="LayaOptions.AllowDownload"/>, cache directory, HuggingFace
-    /// token/repo and <see cref="LayaOptions.LangTemperatures"/> are all taken from this template. <see cref="LayaOptions.Checkpoint"/> and
+    /// token/repo, <see cref="LayaOptions.LangTemperatures"/> and <see cref="LayaOptions.Calibration"/> are all taken from this template. <see cref="LayaOptions.Checkpoint"/> and
     /// <see cref="LayaOptions.ModelDirectory"/> on the template are ignored — the router always
     /// resolves each checkpoint through its own <see cref="LayaOptions.Checkpoint"/>-aware path
     /// (<c>LAYA_ONNX_ROOT</c>, cache, or download), the same way <see cref="LayaEngine.Create"/> does.
@@ -185,7 +185,11 @@ public sealed class LayaRouter : ILayaLongPredictor, IDisposable
     }
 
     private static Func<LayaCheckpoint, ILayaPredictor> BuildDefaultFactory(LayaOptions template) => checkpoint =>
-        LayaEngine.Create(new LayaOptions
+        LayaEngine.Create(EngineOptions(template, checkpoint));
+
+    /// <summary>The options of the engine the router builds for <paramref name="checkpoint"/> from its <paramref name="template"/>.</summary>
+    internal static LayaOptions EngineOptions(LayaOptions template, LayaCheckpoint checkpoint) =>
+        new()
         {
             Checkpoint = checkpoint,
             ExecutionProvider = template.ExecutionProvider,
@@ -198,7 +202,8 @@ public sealed class LayaRouter : ILayaLongPredictor, IDisposable
             DownloadProgress = template.DownloadProgress,
             // agent_kwargs reaches every checkpoint the router builds (router.py:994); each engine resolves it itself.
             LangTemperatures = template.LangTemperatures,
-        });
+            Calibration = template.Calibration,
+        };
 
     // ── name resolution ──────────────────────────────────────────────────────
 

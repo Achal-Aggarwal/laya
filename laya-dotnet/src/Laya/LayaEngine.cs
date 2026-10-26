@@ -41,13 +41,19 @@ public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatch
     private readonly bool _ownsTokenizer;
     private readonly Lock _tokenizerGate = new();
     private readonly IReadOnlyDictionary<string, ResolvedLangTemperature> _langTemperatures;
+    // The temperatures the checkpoint answers with: its own, or a calibration file's (which replaces both), and the file's
+    // binning map (null: none, so answer_confidence is the temperature-scaled one).
+    private readonly IReadOnlyList<double> _temperature;
+    private readonly IReadOnlyDictionary<string, double> _temperatureByOptions;
+    private readonly IReadOnlyDictionary<string, BinningEntry>? _binningMap;
     // 0 = live, 1 = disposed; int so Interlocked.Exchange can operate on it.
     private int _disposed;
 
     private LayaEngine(InferenceSession? fusedSession, InferenceSession? encoderSession,
                        InferenceSession? headSession, HfTokenizer tokenizer, bool ownsTokenizer,
                        LayaConfig config, ModelArtifacts artifacts,
-                       IReadOnlyDictionary<string, ResolvedLangTemperature> langTemperatures)
+                       IReadOnlyDictionary<string, ResolvedLangTemperature> langTemperatures,
+                       CalibrationPayload? calibration)
     {
         _fusedSession = fusedSession;
         _encoderSession = encoderSession;
@@ -57,6 +63,10 @@ public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatch
         Config = config;
         Artifacts = artifacts;
         _langTemperatures = langTemperatures;
+        _temperature = calibration?.Temperature ?? config.Temperature;
+        _temperatureByOptions = calibration?.TemperatureByOptions ?? config.TemperatureByOptions;
+        // Python tests the map's truth, so an empty one is no map at all.
+        _binningMap = calibration?.BinningMap is { Count: > 0 } map ? map : null;
     }
 
     /// <summary>The loaded checkpoint's configuration.</summary>
@@ -89,6 +99,9 @@ public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatch
     /// <exception cref="ArgumentException">
     /// When <see cref="LayaOptions.LangTemperatures"/> holds a language whose temperature is not three values, with
     /// Python's <c>ValueError</c> text.
+    /// </exception>
+    /// <exception cref="InvalidDataException">
+    /// When <see cref="LayaOptions.Calibration"/> names a file Python's <c>load_calibration</c> refuses, with its exception type and text.
     /// </exception>
     [WarnSite, MethodImpl(MethodImplOptions.NoInlining)]
     public static LayaEngine Create(LayaOptions? options = null)
@@ -130,8 +143,15 @@ public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatch
             }
 
             tokenizer = new HfTokenizer(artifacts.TokenizerPath);
+
+            // onnx_agent.py:263: last, after the tokenizer, the session, the checkpoint's temperatures and
+            // the language table, so a broken checkpoint reports its own error before a bad calibration file.
+            CalibrationPayload? calibration = null;
+            if (!string.IsNullOrEmpty(options.Calibration))
+                calibration = CalibrationFile.Load(options.Calibration);
+
             return new LayaEngine(fusedSession, encoderSession, headSession,
-                tokenizer, ownsTokenizer: true, config, artifacts, langTemperatures);
+                tokenizer, ownsTokenizer: true, config, artifacts, langTemperatures, calibration);
         }
         catch
         {
@@ -440,20 +460,11 @@ public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatch
                 var row = offset + q;
                 var question = questions[ids[q]];
                 var k = batch.MarkerCounts[row];
-                var temperature = Calibration.ResolveTemperature(Config, question.Type, k);
-                // onnx_agent.py:728-731: a language the table holds replaces both the checkpoint's bucket map and its
-                // per-type temperature, with no fallback to either. The binning skip of onnx_agent.py:743 has nothing
-                // to skip here: `load_calibration` and its binning map are not ported.
-                if (LangTemperatures.Find(_langTemperatures, lang) is { } langTemperature)
-                    temperature = langTemperature.TemperatureByOptions.TryGetValue(Calibration.TempBucket(question.Type, k), out var byBucket)
-                        ? byBucket
-                        : langTemperature.Temperature[(int)question.Type];
                 var rowLogits = logits.AsSpan(row * batch.MarkerCount, batch.MarkerCount);
-                var p = Calibration.Probabilities(rowLogits, k, temperature);
-
                 var action = new ActionInfo(
                     Calibration.Round4(Calibration.Softmax(actLogits.AsSpan(row * nAct, nAct))[0]));
-                answers[ids[q]] = BuildAnswer(question, p, k, action);
+                answers[ids[q]] = DecodeRow(question, rowLogits, k, _temperature, _temperatureByOptions,
+                    LangTemperatures.Find(_langTemperatures, lang), _binningMap, action);
             }
             var stateDetails = details.GetRange(offset, ids.Count);
             var usage = new Usage(stateDetails.Sum(d => d.Ids.Length), 0);
@@ -478,10 +489,33 @@ public sealed class LayaEngine : IDisposable, ILayaLongLangPredictor, ILayaBatch
         return results;
     }
 
-    private static Answer BuildAnswer(Question question, double[] p, int k, ActionInfo action)
+    /// <summary>
+    /// One row of <c>_decode_answers</c> (<c>onnx_agent.py:725-756</c>): the temperature (<paramref name="langTemperature"/>, when
+    /// the call's language is one the table holds, replaces both the bucket map and the per-type temperature, with no fallback to
+    /// either), the softmax, and the answer. <paramref name="binningMap"/> recalibrates <c>answer_confidence</c> alone, on the
+    /// unrounded <c>max(p)</c> and before the rounding, and is skipped under a language override.
+    /// </summary>
+    internal static Answer DecodeRow(
+        Question question, ReadOnlySpan<float> rowLogits, int k,
+        IReadOnlyList<double> temperature, IReadOnlyDictionary<string, double> temperatureByOptions,
+        ResolvedLangTemperature? langTemperature, IReadOnlyDictionary<string, BinningEntry>? binningMap, ActionInfo action)
+    {
+        var bucket = Calibration.TempBucket(question.Type, k);
+        var scale = Calibration.ResolveTemperature(temperature, temperatureByOptions, question.Type, k);
+        if (langTemperature is not null)
+            scale = langTemperature.TemperatureByOptions.TryGetValue(bucket, out var byBucket)
+                ? byBucket
+                : langTemperature.Temperature[(int)question.Type];
+        var p = Calibration.Probabilities(rowLogits, k, scale);
+        var answerConfidence = Calibration.AnswerConfidence(p, k);
+        if (binningMap is not null && langTemperature is null)
+            answerConfidence = CalibrationFile.ApplyBinning(answerConfidence, bucket, binningMap);
+        return BuildAnswer(question, p, k, action, Calibration.Round4(answerConfidence));
+    }
+
+    private static Answer BuildAnswer(Question question, double[] p, int k, ActionInfo action, double answerConfidence)
     {
         var confidence = Calibration.Round4(Calibration.ConfidenceFromProbs(p, k));
-        var answerConfidence = Calibration.Round4(Calibration.AnswerConfidence(p, k));
         switch (question)
         {
             case ChoiceQuestion choice:

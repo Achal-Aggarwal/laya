@@ -71,10 +71,10 @@ public sealed partial class PredictParityTests(AllEnginesFixture fixture)
     [MemberData(nameof(AllSuccessCases))]
     public void ReproducesTheRecordedAnswers(LayaCheckpoint checkpoint, GoldenCaseInfo info)
     {
-        var engine = fixture.Require(checkpoint);
         var golden = GoldenData.For(checkpoint);
         using var doc = golden.Load(info);
         var root = doc.RootElement;
+        var engine = fixture.RequireFor(checkpoint, root);
 
         var state     = GoldenData.ToClr(root.GetProperty("state"));
         var questions = GoldenData.BuildQuestions(root.GetProperty("questions"));
@@ -133,10 +133,10 @@ public sealed partial class PredictParityTests(AllEnginesFixture fixture)
     [MemberData(nameof(AllSuccessCasesSplit))]
     public void ReproducesTheRecordedAnswersSplit(LayaCheckpoint checkpoint, GoldenCaseInfo info)
     {
-        var engine = fixture.RequireSplit(checkpoint);
         var golden = GoldenData.For(checkpoint);
         using var doc = golden.Load(info);
         var root = doc.RootElement;
+        var engine = fixture.RequireFor(checkpoint, root, split: true);
 
         var state     = GoldenData.ToClr(root.GetProperty("state"));
         var questions = GoldenData.BuildQuestions(root.GetProperty("questions"));

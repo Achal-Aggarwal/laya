@@ -35,9 +35,9 @@ public sealed partial class PredictParityTests
     [MemberData(nameof(BatchSuccessCases))]
     public void ReproducesBatchPredictions(LayaCheckpoint checkpoint, GoldenCaseInfo info, bool split)
     {
-        var engine = split ? fixture.RequireSplit(checkpoint) : fixture.Require(checkpoint);
         using var doc = GoldenData.For(checkpoint).Load(info);
         var root = doc.RootElement;
+        var engine = fixture.RequireFor(checkpoint, root, split);
         var states = BatchStates(root);
         var questions = GoldenData.BuildQuestions(root.GetProperty("questions"));
 
