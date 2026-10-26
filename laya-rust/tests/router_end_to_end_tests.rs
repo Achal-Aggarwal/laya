@@ -116,6 +116,11 @@ fn router_predict_routes_and_matches_the_recorded_checkpoint_result() {
 
 #[test]
 fn sample_inputs_match_recorded_model_case_inputs() {
+    // Reads the english and multilingual goldens, which only the router cell regenerates; a single-
+    // checkpoint cell would otherwise check the committed copy of the checkpoint it does not own.
+    if !router_selected() {
+        return;
+    }
     let sample_inputs = routing_golden::load("sample_inputs.json")
         .expect("the routing sample fixture must be present");
     let support = &sample_inputs["support_email"];
