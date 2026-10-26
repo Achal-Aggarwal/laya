@@ -324,3 +324,26 @@ func TestDigestsArgumentTwoSpellingsRefused(t *testing.T) {
 		t.Fatalf("later option must replace: %v %v", err, r.SHA256Digests())
 	}
 }
+
+// The rewrite must stay out of strings (an escaped quote does not end one) and must not touch a
+// token that is glued to other text, which Python reads as not JSON.
+func TestDigestsEnvNonFiniteRewriteBounds(t *testing.T) {
+	r := newDigestRouter(t, `{"english":{"a":"x\":NaN, y"}}`)
+	if got := r.SHA256Digests()["english"]["a"]; got != `x":NaN, y` {
+		t.Errorf("a string holding an escaped quote and NaN was rewritten: %q", got)
+	}
+	r = newDigestRouter(t, `{"english":{"a":"\\"},"multilingual":{"b":":,Infinity"}}`)
+	if got := r.SHA256Digests()["multilingual"]["b"]; got != ":,Infinity" {
+		t.Errorf("escaped backslash then string: %q", got)
+	}
+	t.Setenv("LAYA_SHA256_DIGESTS", `{"english":{"a":"\\"},"x":NaN}`)
+	if _, err := router.New(); err == nil || !strings.Contains(err.Error(), "mixes the two") {
+		t.Errorf("a bare NaN after an escaped backslash must be refused as mixed: %v", err)
+	}
+	for _, env := range []string{`{"english":NaNe5}`, `{"a":Infinity.5}`, `{"english":-Infinity5}`, `{"english":{"a":"q"},"b":NaN1}`} {
+		r := newDigestRouter(t, env) // glued: not JSON, names nothing
+		if len(r.SHA256Digests()) != 0 {
+			t.Errorf("%s: table = %v", env, r.SHA256Digests())
+		}
+	}
+}

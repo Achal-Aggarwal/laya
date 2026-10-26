@@ -92,7 +92,7 @@ func replayDigestRow(t *testing.T, row fixtures.Object) (isErr bool) {
 func TestRouterDigestsGolden(t *testing.T) {
 	root := fixtures.Load(t, "go_extra.json")
 	rows := fixtures.List(t, root.Must("router_digests"))
-	if len(rows) != 1350 {
+	if len(rows) != 1620 {
 		t.Fatalf("%d rows", len(rows))
 	}
 	errs := 0
@@ -104,7 +104,7 @@ func TestRouterDigestsGolden(t *testing.T) {
 			}
 		})
 	}
-	if errs != 590 {
-		t.Fatalf("%d error rows, want 590", errs)
+	if errs != 660 {
+		t.Fatalf("%d error rows, want 660", errs)
 	}
 }

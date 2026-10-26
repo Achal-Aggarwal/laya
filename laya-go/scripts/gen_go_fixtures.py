@@ -1878,6 +1878,9 @@ def router_digests_family():
         # Python's json.loads reads these; encoding/json does not
         '{"english": NaN}', '{"a": -Infinity}', '[NaN]', "NaN",
         '{"english": {"a": "%s"}, "x": Infinity}' % a,
+        # tokens inside strings (escaped quote, escaped backslash) and glued to other text
+        '{"english": {"a": "x\\":NaN, y"}}', '{"english": {"a": "\\\\"}, "x": NaN}',
+        '{"english": NaNe5}', '{"a": Infinity.5}', '{"english": -Infinity5}', '{"english": {"a": "q"}, "b": NaN1}',
     ]
     arguments = [
         None, {}, {"english": {"model.safetensors": c}}, {"ml": None}, {"engligh": english},
