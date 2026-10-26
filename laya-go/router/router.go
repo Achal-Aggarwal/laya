@@ -151,11 +151,20 @@ func New(opts ...Option) (*Router, error) {
 		return nil, err
 	}
 	pins := make(digestTable, len(c.digests))
+	spelled := map[*byte]map[Checkpoint]string{}
 	for _, p := range c.digests {
 		key, err := NormaliseName(p.name)
 		if err != nil {
 			return nil, err
 		}
+		if prior, dup := spelled[p.group][key]; dup {
+			return nil, fmt.Errorf("sha256_digests names %q twice: %q and %q are the same checkpoint",
+				string(key), prior, p.name)
+		}
+		if spelled[p.group] == nil {
+			spelled[p.group] = map[Checkpoint]string{}
+		}
+		spelled[p.group][key] = p.name
 		pins[key] = p.files
 	}
 	for k, v := range pins {

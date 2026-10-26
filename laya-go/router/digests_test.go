@@ -277,3 +277,50 @@ func TestDigestsConcurrentUse(t *testing.T) {
 		t.Fatalf("a = %q", got)
 	}
 }
+
+// Python's json.loads reads NaN, Infinity and -Infinity; encoding/json does not. Read as "not
+// JSON", the whole variable would name nothing and every nested pin in it would vanish.
+func TestDigestsEnvNonFiniteNumbersAreNotDropped(t *testing.T) {
+	for _, c := range []struct{ env, want string }{
+		{`{"english":{"model.safetensors":"` + hexOf("a") + `"},"multilingual":{"a":NaN}}`, `the digest of "a" in "multilingual" must be a string`},
+		{`{"english":{"a":-Infinity}}`, `must be a string`},
+		{`{"english":NaN}`, "mixes the two"},
+		{`{"english":{"a":"b"},"x":Infinity}`, "mixes the two"},
+		{`{"a":-Infinity}`, "x"}, // flat-shaped but not all strings: refused as mixed
+	} {
+		t.Setenv("LAYA_SHA256_DIGESTS", c.env)
+		_, err := router.New()
+		if err == nil || (c.want != "x" && !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("%s: err = %v", c.env, err)
+		}
+	}
+	// The same words inside strings, and a value that is not a bare token, change nothing.
+	r := newDigestRouter(t, `{"english":{"a":"NaN"},"multilingual":{"Infinity":"-Infinity"}}`)
+	if got := r.SHA256Digests(); got["english"]["a"] != "NaN" || got["multilingual"]["Infinity"] != "-Infinity" {
+		t.Errorf("strings were rewritten: %v", got)
+	}
+	for _, env := range []string{`NaN`, `[NaN]`, `{"a":NaNx}`, `{"a":1NaN}`} { // not objects / not JSON: names nothing
+		r := newDigestRouter(t, env)
+		if len(r.SHA256Digests()) != 0 {
+			t.Errorf("%s: table = %v", env, r.SHA256Digests())
+		}
+	}
+}
+
+// Python keeps whichever of two spellings comes last in dict order; Go refuses, so no pin can be
+// dropped by an ordering the caller cannot see.
+func TestDigestsArgumentTwoSpellingsRefused(t *testing.T) {
+	t.Setenv("LAYA_SHA256_DIGESTS", "")
+	x := map[string]string{"model.safetensors": hexOf("x")}
+	y := map[string]string{"model.safetensors": hexOf("y")}
+	_, err := router.New(router.WithSHA256Digests(map[string]map[string]string{"english": x, "en": y}))
+	if err == nil || !strings.Contains(err.Error(), "same checkpoint") {
+		t.Fatalf("err = %v", err)
+	}
+	// Separate options may name a checkpoint again: the later one replaces the earlier.
+	r, err := router.New(router.WithSHA256Digests(map[string]map[string]string{"english": x}),
+		router.WithSHA256Digests(map[string]map[string]string{"en": y}))
+	if err != nil || r.SHA256Digests()["english"]["model.safetensors"] != hexOf("y") {
+		t.Fatalf("later option must replace: %v %v", err, r.SHA256Digests())
+	}
+}

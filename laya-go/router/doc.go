@@ -51,7 +51,8 @@
 // names the hook's Go type. Digests: SHA256Digests is a copy, where Python's sha256_digests is a
 // public dict that can be edited after construction; a non-string digest in a nested
 // LAYA_SHA256_DIGESTS is an error from New, where Python hands it to the agent; two spellings of one
-// checkpoint in WithSHA256Digests resolve in name order, and several unknown names report the first in name order, where Python uses
+// checkpoint in one WithSHA256Digests map are an error from New (Python keeps whichever comes last),
+// and several unknown names report the first in name order, where Python uses
 // the dict's order. Not
 // ported, because the factory owns them: agent_kwargs and its reserved-name check (a factory passes
 // typed agent options), revision and revisions (no hub download), preload=True (New has no context,

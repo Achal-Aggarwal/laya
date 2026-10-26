@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/NandhaKishorM/laya/laya-go/internal/digest"
 	"github.com/NandhaKishorM/laya/laya-go/internal/unicodedata"
@@ -21,7 +22,9 @@ import (
 // Router name is, so "en" pins English, and a name the Router does not know is an
 // *UnknownModelError from New. A nil map is an explicit "pin nothing": it masks a flat
 // LAYA_SHA256_DIGESTS for that checkpoint. A pin given here replaces the whole entry the
-// environment seeded for that checkpoint; a later call replaces an earlier one per name.
+// environment seeded for that checkpoint; a later call replaces an earlier one per name. Two
+// spellings of one checkpoint in the same map ("en" and "english") are an error from New: Python
+// keeps whichever comes last in dict order, which would let a pin vanish without a word.
 //
 // The Router does not verify anything. ExpectedSHA256 says what to hand agent.WithExpectedSHA256.
 func WithSHA256Digests(digests map[string]map[string]string) Option {
@@ -31,15 +34,17 @@ func WithSHA256Digests(digests map[string]map[string]string) Option {
 		for name := range digests {
 			names = append(names, name)
 		}
-		sort.Strings(names) // two spellings of one checkpoint ("en", "english") resolve in name order
+		sort.Strings(names) // so the refusal of two spellings of one checkpoint names the same pair every time
+		group := new(byte)
 		for _, name := range names {
-			c.digests = append(c.digests, digestPin{name, digests[name]})
+			c.digests = append(c.digests, digestPin{group, name, digests[name]})
 		}
 		return nil
 	}
 }
 
 type digestPin struct {
+	group *byte // one per WithSHA256Digests call: two spellings of a checkpoint inside it are refused
 	name  string
 	files map[string]string
 }
@@ -58,7 +63,7 @@ func digestsFromEnv(models map[Checkpoint]ModelSpec) (digestTable, error) {
 		return digestTable{}, nil
 	}
 	var data lang.Object
-	if err := json.Unmarshal([]byte(raw), &data); err != nil || len(data) == 0 {
+	if err := json.Unmarshal([]byte(pyNonFinite(raw)), &data); err != nil || len(data) == 0 {
 		return digestTable{}, nil // not JSON, not an object, or {}: laya.revisions' to report
 	}
 	strs, objs := 0, 0
@@ -172,4 +177,62 @@ func mergeExpectedDigests(shared, perModel map[string]string) map[string]string 
 		merged[k] = v
 	}
 	return merged
+}
+
+// pyNonFinite rewrites the bare NaN, Infinity and -Infinity values Python's json.loads accepts (and
+// encoding/json does not) into the number 0, outside strings. Such a value is neither a string nor
+// an object, which is all digestsFromEnv asks of a value, so the classification (flat, nested,
+// refused) is Python's. Left alone, the whole variable would read as "not JSON" and every nested
+// pin in it would vanish without a word.
+func pyNonFinite(raw string) string {
+	var b strings.Builder
+	inStr, esc := false, false
+	prev := byte(0) // last non-space byte outside strings
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		switch {
+		case inStr:
+			b.WriteByte(ch)
+			if esc {
+				esc = false
+			} else if ch == '\\' {
+				esc = true
+			} else if ch == '"' {
+				inStr = false
+			}
+			continue
+		case ch == '"':
+			inStr = true
+			prev = ch
+			b.WriteByte(ch)
+			continue
+		}
+		if prev == ':' || prev == ',' || prev == '[' {
+			for _, tok := range [...]string{"-Infinity", "Infinity", "NaN"} {
+				if strings.HasPrefix(raw[i:], tok) && endsValue(raw, i+len(tok)) {
+					b.WriteByte('0')
+					i += len(tok) - 1
+					prev = '0'
+					goto next
+				}
+			}
+		}
+		if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' {
+			prev = ch
+		}
+		b.WriteByte(ch)
+	next:
+	}
+	return b.String()
+}
+
+func endsValue(s string, i int) bool {
+	if i >= len(s) {
+		return true
+	}
+	switch s[i] {
+	case ' ', '\t', '\n', '\r', ',', ']', '}':
+		return true
+	}
+	return false
 }

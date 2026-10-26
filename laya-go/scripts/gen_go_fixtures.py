@@ -1875,6 +1875,9 @@ def router_digests_family():
         json.dumps({"a": 1}),
         json.dumps({"z": 1, "a": "s", "m": None}),
         json.dumps({"english": english, "multilingual": []}),
+        # Python's json.loads reads these; encoding/json does not
+        '{"english": NaN}', '{"a": -Infinity}', '[NaN]', "NaN",
+        '{"english": {"a": "%s"}, "x": Infinity}' % a,
     ]
     arguments = [
         None, {}, {"english": {"model.safetensors": c}}, {"ml": None}, {"engligh": english},
