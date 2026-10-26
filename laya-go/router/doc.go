@@ -27,6 +27,14 @@
 // Reason strings are part of the contract. They quote with Python's repr, round percentages half
 // to even and cut at 60 code points, so a decision here reads exactly as the Python router's.
 //
+// # Digests
+//
+// WithSHA256Digests pins checkpoints to the SHA-256 of their files, and a nested
+// LAYA_SHA256_DIGESTS ({model: {artifact: digest}}) does the same from the environment, read by New;
+// a flat one is left to the agent. ExpectedSHA256 merges those with a pin the factory holds for
+// every checkpoint and returns the map for agent.WithExpectedSHA256, nil meaning pass none. The
+// Router verifies nothing itself.
+//
 // A Router is safe for concurrent use. Its routing is fixed once built; only its hook list changes
 // (AddHook, RemoveHook, InstallHooks).
 //
@@ -40,5 +48,11 @@
 // where Python registers it. Load returns an agent that closes on eviction; Lease keeps it open.
 // Attach and Preload raise MaxLoaded as in Python. Hooks run concurrently as in Python; WithSerialHooks
 // runs one at a time (and then a hook must not call Route on its own Router). A hook failure
-// names the hook's Go type.
+// names the hook's Go type. Digests: SHA256Digests is a copy, where Python's sha256_digests is a
+// public dict that can be edited after construction; a non-string digest in a nested
+// LAYA_SHA256_DIGESTS is an error from New, where Python hands it to the agent; two spellings of one
+// checkpoint in WithSHA256Digests resolve in name order, where Python uses the dict's order. Not
+// ported, because the factory owns them: agent_kwargs and its reserved-name check (a factory passes
+// typed agent options), revision and revisions (no hub download), preload=True (New has no context,
+// call Preload), per-checkpoint lang_temperatures (a factory passes agent.WithLangTemperatures).
 package router
