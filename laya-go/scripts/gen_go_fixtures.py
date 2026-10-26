@@ -1824,15 +1824,35 @@ def _lifecycle_case(label, router_kwargs, hooks, ops):
     return record
 
 
+def digests_row(env, argument, pin):
+    """One router_digests row: Router(sha256_digests=argument) under LAYA_SHA256_DIGESTS=env (None:
+    unset), and the map each checkpoint would be built with given the shared `pin`."""
+    from unittest import mock
+    from laya.router import Router, _digest_entry, _merge_expected_digests
+
+    row = {"env": env, "argument": argument, "shared": pin}
+    with mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("LAYA_SHA256_DIGESTS", None)
+        if env is not None:
+            os.environ["LAYA_SHA256_DIGESTS"] = env
+        try:
+            router = Router(sha256_digests=argument)
+        except ValueError as exc:
+            row["error"] = str(exc)
+        else:
+            row["table"] = {k: router.sha256_digests[k] for k in sorted(router.sha256_digests)}
+            row["expected"] = {
+                name: _merge_expected_digests(pin, _digest_entry(router.sha256_digests, name))
+                for name in ("english", "multilingual", "typed-decisions")}
+    return row
+
+
 def router_digests_family():
     """What the real Router holds and merges for per-checkpoint SHA-256 pins: the
     LAYA_SHA256_DIGESTS layering (flat, nested, mixed, malformed), the `sha256_digests` argument
     (explicit None masks), the `agent_kwargs["expected_sha256"]` channel and the merge. Each row is
     either an error text from Router(...) or the table plus, per checkpoint, the map
     _merge_expected_digests hands Agent (null: none passed). No model runs."""
-    from unittest import mock
-    from laya.router import Router, _digest_entry, _merge_expected_digests
-
     a, b, c, d, e = ("%s" % ch * 64 for ch in "abcde")
     english = {"model.safetensors": a}
     multi = {"model.safetensors": b}
@@ -1862,26 +1882,7 @@ def router_digests_family():
         {"typed": {"tokenizer.json": e}},
     ]
     shared = [None, {}, shared_pin, {"model.safetensors": c}, {"model.safetensors": c, "tokenizer.json": d}]
-    rows = []
-    for env in envs:
-        for argument in arguments:
-            for pin in shared:
-                with mock.patch.dict(os.environ, {}, clear=False):
-                    os.environ.pop("LAYA_SHA256_DIGESTS", None)
-                    if env is not None:
-                        os.environ["LAYA_SHA256_DIGESTS"] = env
-                    row = {"env": env, "argument": argument, "shared": pin}
-                    try:
-                        router = Router(sha256_digests=argument)
-                    except ValueError as exc:
-                        row["error"] = str(exc)
-                    else:
-                        row["table"] = {k: router.sha256_digests[k] for k in sorted(router.sha256_digests)}
-                        row["expected"] = {
-                            name: _merge_expected_digests(pin, _digest_entry(router.sha256_digests, name))
-                            for name in ("english", "multilingual", "typed-decisions")}
-                rows.append(row)
-    return rows
+    return [digests_row(env, argument, pin) for env in envs for argument in arguments for pin in shared]
 
 
 def lifecycle_family():

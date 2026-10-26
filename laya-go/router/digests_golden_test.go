@@ -45,6 +45,50 @@ func setEnv(t *testing.T, v any) {
 	os.Setenv("LAYA_SHA256_DIGESTS", fixtures.Str(t, v))
 }
 
+// replayDigestRow checks one router_digests row against the Router and says whether it was an
+// error row.
+func replayDigestRow(t *testing.T, row fixtures.Object) (isErr bool) {
+	t.Helper()
+	setEnv(t, row.Must("env"))
+	var opts []router.Option
+	if arg := perModel(t, row.Must("argument")); arg != nil {
+		opts = append(opts, router.WithSHA256Digests(arg))
+	}
+	r, err := router.New(opts...)
+	if want, bad := row.Get("error"); bad {
+		if err == nil || err.Error() != fixtures.Str(t, want) {
+			t.Fatalf("New error = %v, want %q", err, want)
+		}
+		return true
+	}
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	table := map[router.Checkpoint]map[string]string{}
+	for k, v := range perModel(t, row.Must("table")) {
+		table[router.Checkpoint(k)] = v
+	}
+	got := r.SHA256Digests()
+	if len(got) != len(table) {
+		t.Fatalf("table = %v, want %v", got, table)
+	}
+	for k, want := range table {
+		g, ok := got[k]
+		if !ok || (g == nil) != (want == nil) || (want != nil && !reflect.DeepEqual(g, want)) {
+			t.Fatalf("table[%s] = %#v, want %#v", k, g, want)
+		}
+	}
+	shared := files(t, row.Must("shared"))
+	for _, m := range fixtures.Obj(t, row.Must("expected")) {
+		want := files(t, m.Value)
+		got, err := r.ExpectedSHA256(m.Key, shared)
+		if err != nil || (got == nil) != (want == nil) || (want != nil && !reflect.DeepEqual(got, want)) {
+			t.Fatalf("ExpectedSHA256(%s) = %#v, %v, want %#v", m.Key, got, err, want)
+		}
+	}
+	return false
+}
+
 func TestRouterDigestsGolden(t *testing.T) {
 	root := fixtures.Load(t, "go_extra.json")
 	rows := fixtures.List(t, root.Must("router_digests"))
@@ -55,43 +99,8 @@ func TestRouterDigestsGolden(t *testing.T) {
 	for i, rv := range rows {
 		row := fixtures.Obj(t, rv)
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			setEnv(t, row.Must("env"))
-			var opts []router.Option
-			if arg := perModel(t, row.Must("argument")); arg != nil {
-				opts = append(opts, router.WithSHA256Digests(arg))
-			}
-			r, err := router.New(opts...)
-			if want, bad := row.Get("error"); bad {
+			if replayDigestRow(t, row) {
 				errs++
-				if err == nil || err.Error() != fixtures.Str(t, want) {
-					t.Fatalf("New error = %v, want %q", err, want)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
-			table := map[router.Checkpoint]map[string]string{}
-			for k, v := range perModel(t, row.Must("table")) {
-				table[router.Checkpoint(k)] = v
-			}
-			got := r.SHA256Digests()
-			if len(got) != len(table) {
-				t.Fatalf("table = %v, want %v", got, table)
-			}
-			for k, want := range table {
-				g, ok := got[k]
-				if !ok || (g == nil) != (want == nil) || (want != nil && !reflect.DeepEqual(g, want)) {
-					t.Fatalf("table[%s] = %#v, want %#v", k, g, want)
-				}
-			}
-			shared := files(t, row.Must("shared"))
-			for _, m := range fixtures.Obj(t, row.Must("expected")) {
-				want := files(t, m.Value)
-				got, err := r.ExpectedSHA256(m.Key, shared)
-				if err != nil || (got == nil) != (want == nil) || (want != nil && !reflect.DeepEqual(got, want)) {
-					t.Fatalf("ExpectedSHA256(%s) = %#v, %v, want %#v", m.Key, got, err, want)
-				}
 			}
 		})
 	}

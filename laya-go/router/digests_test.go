@@ -222,7 +222,9 @@ func TestExpectedSHA256Merge(t *testing.T) {
 	if _, leaked := shared["x"]; leaked {
 		t.Fatal("the result must be a fresh map")
 	}
-	if again, _ := r.ExpectedSHA256("english", nil); again["x"] != "" {
+	only, _ := r.ExpectedSHA256("english", nil) // no shared pin: the entry itself is tempting to return
+	only["x"] = "y"
+	if _, leaked := r.SHA256Digests()["english"]["x"]; leaked {
 		t.Fatal("the result must not alias the table")
 	}
 	var ue *router.UnknownModelError
