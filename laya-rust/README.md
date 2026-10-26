@@ -719,9 +719,12 @@ root looking for `onnx/<checkpoint>/`. Tests whose artifacts are missing print a
 return, rather than failing — a machine with no exported checkpoints still gets a green Tier-1 run.
 
 The advisory [Rust parity lane](../.github/workflows/rust.yml) runs on **every push and PR**,
-with no path filter. It regenerates fixtures from the Python `laya/` at that commit using
-[`tools/regen_golden.py`](tools/regen_golden.py), then runs the whole Cargo workspace.
-Goldens are never cached. A `skip:` diagnostic or ignored test makes the lane red, even when
+with no path filter. It is sharded per checkpoint (english, multilingual, typed-decisions, plus
+a router cell for the tests that load english and multilingual together). Each cell regenerates
+its own checkpoint's goldens, and the routing goldens, from the Python `laya/` at that commit
+using [`tools/regen_golden.py`](tools/regen_golden.py), then runs the Cargo tests with
+`LAYA_TEST_CHECKPOINTS` set to its checkpoints and its own `--min-passed` floor.
+Goldens are never cached; the exports are, per checkpoint. A `skip:` diagnostic or ignored test makes the lane red, even when
 Cargo counts a missing-model early return as a pass. Job-level `continue-on-error` keeps Python
 improvements unblocked; Rust drift needs a follow-up port. This workflow never publishes crates.
 The skip guard runs only after successful Cargo tests; regeneration/build failures retain their
@@ -759,6 +762,11 @@ and `LAYA_ONNX_SPLIT_ROOT=<root>/onnx-split`. Regeneration reuses only complete 
 stamp matches the pinned checkpoint, exporters, toolchain and Python model definition.
 The fused exporter is shared with `laya-dotnet/tools/export_onnx.py`; split exports use
 `laya-ts/scripts/export_onnx.py`.
+
+`LAYA_TEST_CHECKPOINTS` (space- or comma-separated subdirectory names, e.g. `english` or
+`"english multilingual"`) limits the model-backed and golden-backed tests to those checkpoints; a
+deselected checkpoint is skipped silently, a selected one with missing artifacts or goldens prints a
+`skip:` line, and an unknown name panics. Unset runs every checkpoint.
 
 Model loads are ~1.3–1.7 GB each; run model-backed tests serially (optionally with `--release`):
 

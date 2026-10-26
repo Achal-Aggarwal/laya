@@ -421,12 +421,22 @@ mod tests {
         use crate::tokenization::HfTokenizer;
         use serde_json::Value;
 
+        // `LAYA_TEST_CHECKPOINTS` (space- or comma-separated subdirectory names) narrows this to the
+        // checkpoints a parity job owns; unset runs all. Same semantics as `tests/common`.
+        let selected = std::env::var("LAYA_TEST_CHECKPOINTS").unwrap_or_default();
+        let selected: Vec<&str> = selected
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|name| !name.is_empty())
+            .collect();
         let mut checked_any = false;
         for checkpoint in [
             crate::LayaCheckpoint::Multilingual,
             crate::LayaCheckpoint::English,
             crate::LayaCheckpoint::TypedDecisions,
-        ] {
+        ]
+        .into_iter()
+        .filter(|c| selected.is_empty() || selected.contains(&c.subdir()))
+        {
             let Some(dir) = artifact_dir(checkpoint) else {
                 continue;
             };

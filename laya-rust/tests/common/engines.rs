@@ -21,6 +21,25 @@ pub const CHECKPOINTS: [LayaCheckpoint; 3] = [
     LayaCheckpoint::TypedDecisions,
 ];
 
+/// The checkpoints this run covers: every one, or those `LAYA_TEST_CHECKPOINTS` selects (see
+/// [`test_artifacts::selected_subdirs`]). Loops over checkpoints use this, never [`CHECKPOINTS`]
+/// directly, so a parity job only touches the checkpoints it owns.
+pub fn checkpoints() -> Vec<LayaCheckpoint> {
+    CHECKPOINTS
+        .into_iter()
+        .filter(|c| test_artifacts::is_selected(*c))
+        .collect()
+}
+
+/// Like [`load`], for a test pinned to one checkpoint: returns `None` without a skip line when
+/// that checkpoint is not selected, because another parity job owns it.
+pub fn load_selected(checkpoint: LayaCheckpoint) -> Option<LayaEngine> {
+    if !test_artifacts::is_selected(checkpoint) {
+        return None;
+    }
+    load(checkpoint)
+}
+
 /// Loads the engine for `checkpoint`, or prints a skip line and returns `None` when its ONNX
 /// artifacts are not available locally. Panics (rather than returning `None`) if the artifacts
 /// are present but fail to load — that is a real bug, not a missing-fixture skip.
