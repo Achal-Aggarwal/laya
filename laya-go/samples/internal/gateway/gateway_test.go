@@ -32,7 +32,7 @@ func TestPolicyAndRowMatchPython(t *testing.T) {
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
 	}
-	if len(cases) != 7 {
+	if len(cases) != 10 {
 		t.Fatalf("%d cases", len(cases))
 	}
 	for _, c := range cases {
