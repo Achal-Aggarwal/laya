@@ -136,7 +136,12 @@ jobs:
     name: parity (${{ matrix.name }})
     runs-on: ubuntu-latest
     continue-on-error: true   # advisory: see the header
-    # Per cell, from the matrix (see the derivation below).
+    # Per cell, from the matrix (see the derivation below). The single-cell limit went from 60 to
+    # 120 on main (b9fe351c) because the replays grew: on a478221b, where #1358 added about 50 batch
+    # cases per checkpoint, english took 52m, typed-decisions was killed at 60m mid-test-run and
+    # recorded as CANCELLED (which reads like a superseded run, not a budget failure), multilingual
+    # 13m and router 26m. Splitting each checkpoint by layout halves the replays per cell, so each
+    # cell gets a limit sized from its own measured time instead of one shared headroom number.
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
