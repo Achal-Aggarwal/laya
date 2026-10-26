@@ -10,6 +10,7 @@ namespace Laya.Tests;
 /// <c>Router</c> over stub agents), and the token budgets against <c>build_sequence</c>. The decode itself, which
 /// needs the weights, is pinned by the language cases of <see cref="PredictParityTests"/>.
 /// </summary>
+[Collection(WarningStateCollection.Name)]
 public sealed class LangTemperatureTests
 {
     private sealed class Capture : TraceListener
