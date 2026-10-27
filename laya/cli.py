@@ -164,6 +164,13 @@ def load_questions(path):
             raw = json.load(handle)
     except FileNotFoundError:
         raise ValueError("no such --questions file: %s" % path)
+    except OSError as error:
+        # A path that exists but cannot be read as a file -- a directory, or one this process may
+        # not open -- is the same class of fault as the three below: it is about *this* file, not
+        # about a missing dependency or a failed checkpoint download. Letting the raw OSError reach
+        # run()'s `except (ImportError, OSError, RuntimeError)` printed "could not run Laya" and
+        # advised checking the network, which is a false diagnosis for a wrong --questions path.
+        raise ValueError("--questions file %s cannot be read: %s" % (path, error)) from error
     # The same three refusals `laya/evidence.py::_read_json_object` makes: a bare JSONDecodeError or
     # UnicodeDecodeError says what is wrong with the text but not which file, and a too-deep document
     # surfaces as a RecursionError that the caller's `except (OSError, RuntimeError, ...)` misreads as
