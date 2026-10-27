@@ -123,6 +123,15 @@ TEST_P(DoublesChunk, ReprFloatMatchesCPython) {
 }
 INSTANTIATE_TEST_SUITE_P(Golden, DoublesChunk, ::testing::ValuesIn(laya_test::Chunks("python_json.json", {"doubles"})));
 
+TEST(PyJson, ReprFloatNotationBoundaries) {  // fixed for exponents in [-4, 16), scientific outside
+  EXPECT_EQ(laya::pyjson::ReprFloat(1e15), "1000000000000000.0");
+  EXPECT_EQ(laya::pyjson::ReprFloat(1e16), "1e+16");
+  EXPECT_EQ(laya::pyjson::ReprFloat(0.0001), "0.0001");
+  EXPECT_EQ(laya::pyjson::ReprFloat(0.00001), "1e-05");
+  EXPECT_EQ(laya::pyjson::ReprFloat(1.5e300), "1.5e+300");
+  EXPECT_EQ(laya::pyjson::ReprFloat(0.30000000000000004), "0.30000000000000004");
+}
+
 TEST(PyJson, ReprStringsDigestPercentRound4) {
   LAYA_GOLDEN_LIST(rs, "python_json.json", "repr_strings");
   for (size_t i = 0; i < rs->size(); i++) {
@@ -209,9 +218,13 @@ TEST(PyValue, DuplicateKeysNaNDepthBigIntRepr) {
   std::string deep(600, '[');
   deep += std::string(600, ']');
   EXPECT_FALSE(pv::Parse(deep).ok());
-  std::string ok(pv::kMaxDepth, '[');
-  ok += std::string(pv::kMaxDepth, ']');
+  // The outermost value is depth 0, so kMaxDepth + 1 brackets parse and kMaxDepth + 2 do not.
+  std::string ok(pv::kMaxDepth + 1, '[');
+  ok += std::string(pv::kMaxDepth + 1, ']');
   EXPECT_TRUE(pv::Parse(ok).ok());
+  std::string over(pv::kMaxDepth + 2, '[');
+  over += std::string(pv::kMaxDepth + 2, ']');
+  EXPECT_FALSE(pv::Parse(over).ok());
   EXPECT_FALSE(pv::Parse(std::string(4301, '9')).ok());
   EXPECT_TRUE(pv::Parse(std::string(4300, '9')).ok());
   EXPECT_FALSE(pv::Parse("\"\\ud800\"").ok());
