@@ -37,7 +37,10 @@ concurrency:
 env:
   # The test floor: the number of ctest tests laya-cpp registers (the GoogleTest cases plus
   # compile_flags). Raise it with every test added.
-  MIN_TESTS: "2"
+  MIN_TESTS: "95"
+  GOLDENS: ${{ github.workspace }}/.cpp-goldens
+  LAYA_GOLDENS: ${{ github.workspace }}/.cpp-goldens
+  LAYA_REQUIRE_GOLDENS: "1"   # a missing golden is a failure, never a skip
 
 jobs:
   build:
@@ -56,9 +59,36 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: laya-dotnet/tools/requirements-regen.txt
 
       - name: Checker tests
         run: python laya-cpp/scripts/test_check_test_xml.py
+
+      # Goldens are recorded from the Python reference at this commit, never read from a committed copy.
+      - name: Install the Python toolchain the goldens are recorded with
+        run: |
+          python -m pip install --upgrade pip
+          pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
+          pip install -r laya-dotnet/tools/requirements-regen.txt
+      - name: Fetch the tokenizers the goldens are recorded against
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          for c in english multilingual; do
+            python laya-java/scripts/prepare_checkpoint.py --checkpoint "$c" --no-graph
+          done
+      - name: Regenerate the goldens from Python
+        env:
+          LAYA_FIXTURE_CHECKPOINTS: ${{ github.workspace }}/laya-java/.work/checkpoints
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python laya-java/scripts/gen_fixtures.py --strict --out "$GOLDENS" --only lang_tables.json --only lang_detect.json --only python_json.json
+          python laya-go/scripts/gen_go_fixtures.py --out "$GOLDENS"
+      - name: Compiled C++ tables match CPython
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python laya-go/scripts/gen_tables.py --lang cpp --check
 
       - name: Configure
         working-directory: laya-cpp
