@@ -34,6 +34,7 @@ void ExpectProfile(const Value& want, const lg::Profile& got, const std::string&
 class DetectRow : public ::testing::TestWithParam<int> {};
 TEST_P(DetectRow, MatchesPython) {
   LAYA_GOLDEN_LIST(rows, "lang_detect.json", "cases");
+  LAYA_EXPECT_ROWS(rows, 106);
   const Value& row = rows->value(size_t(GetParam()));
   const std::string name = row.Find("name")->as_string();
   pv::Value state = StateOf(*row.Find("state"));
@@ -62,7 +63,7 @@ TEST_P(DetectRow, MatchesPython) {
   EXPECT_EQ(lg::IsEnglish(state), row.Find("is_english")->as_bool()) << name;
   EXPECT_EQ(lg::DetectLanguage(state), a.language) << name;
 }
-INSTANTIATE_TEST_SUITE_P(Golden, DetectRow, ::testing::ValuesIn(laya_test::Rows("lang_detect.json", {"cases"})));
+INSTANTIATE_TEST_SUITE_P(Golden, DetectRow, ::testing::ValuesIn(laya_test::Rows(106)));
 
 TEST(Lang, ScriptOfMatchesPythonEverywhere) {
   LAYA_GOLDEN_LIST(want, "lang_detect.json", "unicode_digests", "script_of");

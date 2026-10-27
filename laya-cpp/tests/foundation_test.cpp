@@ -114,6 +114,7 @@ TEST(Unicode, StripFieldsDecimal) {
 class DoublesChunk : public ::testing::TestWithParam<int> {};
 TEST_P(DoublesChunk, ReprFloatMatchesCPython) {
   LAYA_GOLDEN_LIST(rows, "python_json.json", "doubles");
+  LAYA_EXPECT_ROWS(rows, 533);
   for (size_t i = size_t(GetParam()) * laya_test::kChunk; i < std::min(rows->size(), (size_t(GetParam()) + 1) * laya_test::kChunk); i++) {
     uint64_t bits = laya_test::BitsOf(*rows->value(i).Find("bits"));
     double v;
@@ -121,7 +122,7 @@ TEST_P(DoublesChunk, ReprFloatMatchesCPython) {
     EXPECT_EQ(laya::pyjson::ReprFloat(v), rows->value(i).Find("repr")->as_string()) << "bits " << bits;
   }
 }
-INSTANTIATE_TEST_SUITE_P(Golden, DoublesChunk, ::testing::ValuesIn(laya_test::Chunks("python_json.json", {"doubles"})));
+INSTANTIATE_TEST_SUITE_P(Golden, DoublesChunk, ::testing::ValuesIn(laya_test::Chunks(533)));
 
 TEST(PyJson, ReprFloatNotationBoundaries) {  // fixed for exponents in [-4, 16), scientific outside
   EXPECT_EQ(laya::pyjson::ReprFloat(1e15), "1000000000000000.0");
@@ -166,18 +167,20 @@ TEST(PyJson, ReprStringsDigestPercentRound4) {
 class Round4Chunk : public ::testing::TestWithParam<int> {};
 TEST_P(Round4Chunk, HalfEvenMatchesPython) {
   LAYA_GOLDEN_LIST(vals, "go_extra.json", "round4", "values");
+  LAYA_EXPECT_ROWS(vals, 5605);
   const Value* want = At(laya_test::Load("go_extra.json", true), {"round4", "rounded"});
   for (size_t i = size_t(GetParam()) * laya_test::kChunk; i < std::min(vals->size(), (size_t(GetParam()) + 1) * laya_test::kChunk); i++) {
     double got = laya::pyjson::Round4(laya_test::Num(vals->value(i))), w = laya_test::Num(want->value(i));
     EXPECT_EQ(std::memcmp(&got, &w, 8), 0) << "row " << i << " " << got << " vs " << w;
   }
 }
-INSTANTIATE_TEST_SUITE_P(Golden, Round4Chunk, ::testing::ValuesIn(laya_test::Chunks("go_extra.json", {"round4", "values"})));
+INSTANTIATE_TEST_SUITE_P(Golden, Round4Chunk, ::testing::ValuesIn(laya_test::Chunks(5605)));
 
 // ---- pyvalue: json.loads / json.dumps ------------------------------------------------------------
 class StatesChunk : public ::testing::TestWithParam<int> {};
 TEST_P(StatesChunk, ParseAndDumpsMatchPython) {
   LAYA_GOLDEN_LIST(cases, "go_extra.json", "states", "cases");
+  LAYA_EXPECT_ROWS(cases, 2000);
   for (size_t i = size_t(GetParam()) * laya_test::kChunk; i < std::min(cases->size(), (size_t(GetParam()) + 1) * laya_test::kChunk); i++) {
     const std::string& text = cases->value(i).Find("text")->as_string();
     auto v = pv::Parse(text);
@@ -194,7 +197,7 @@ TEST_P(StatesChunk, ParseAndDumpsMatchPython) {
     EXPECT_EQ(v.value().kind() == pv::Value::Kind::Array, cases->value(i).Find("list")->as_bool()) << i;
   }
 }
-INSTANTIATE_TEST_SUITE_P(Golden, StatesChunk, ::testing::ValuesIn(laya_test::Chunks("go_extra.json", {"states", "cases"})));
+INSTANTIATE_TEST_SUITE_P(Golden, StatesChunk, ::testing::ValuesIn(laya_test::Chunks(2000)));
 
 TEST(PyValue, PythonRejectsAndLoneSurrogates) {
   LAYA_GOLDEN_LIST(bad, "go_extra.json", "states", "python_rejects");

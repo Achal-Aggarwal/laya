@@ -45,6 +45,9 @@ inline const Value* Load(const std::string& file, bool report) {
   return &(cache[file] = std::move(parsed).value());
 }
 
+#define LAYA_EXPECT_ROWS(list, n) \
+  ASSERT_EQ((list)->size(), size_t(n)) << "the golden changed shape; update the row count in the test"
+
 // Walks a path of object keys; nullptr when anything is missing.
 inline const Value* At(const Value* v, std::initializer_list<const char*> path) {
   for (const char* k : path) {
@@ -70,16 +73,16 @@ inline bool RequireGoldens() {
   }
 
 constexpr size_t kChunk = 100;  // rows per test case in the large families
-inline std::vector<int> Chunks(const std::string& file, std::initializer_list<const char*> path) {
-  const Value* v = At(Load(file, false), path);
-  size_t rows = v == nullptr ? 1 : (v->size() + kChunk - 1) / kChunk;
+// Parameter lists are built from fixed row counts, never from the golden: loading a 7.6 MB file at
+// registration made `--gtest_list_tests` take seconds and tripped ctest's discovery timeout. Each
+// test asserts the golden still holds exactly that many rows (as laya-go's tests do), so a changed
+// golden fails loudly instead of leaving rows untested.
+inline std::vector<int> Chunks(size_t rows) {
   std::vector<int> out;
-  for (size_t i = 0; i < rows; i++) out.push_back(int(i));
+  for (size_t i = 0; i * kChunk < rows; i++) out.push_back(int(i));
   return out;
 }
-inline std::vector<int> Rows(const std::string& file, std::initializer_list<const char*> path) {
-  const Value* v = At(Load(file, false), path);
-  size_t rows = v == nullptr ? 1 : v->size();
+inline std::vector<int> Rows(size_t rows) {
   std::vector<int> out;
   for (size_t i = 0; i < rows; i++) out.push_back(int(i));
   return out;

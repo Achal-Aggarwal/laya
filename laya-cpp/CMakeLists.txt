@@ -54,7 +54,12 @@ if(LAYA_BUILD_TESTS)
 
   include(GoogleTest)
   # PRE_TEST: the parametrized rows are counted from the goldens, which exist at test time.
-  gtest_discover_tests(laya_tests DISCOVERY_MODE PRE_TEST)
+  gtest_discover_tests(laya_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 120)
+
+  # Listing must stay cheap (it runs before every ctest): bound it at 3 s with the goldens loaded.
+  add_test(NAME discovery_fast
+    COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:laya_tests> -DLIMIT=3
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_discovery_time.cmake)
 
   # compile_commands.json is the record of what the compiler was really given, so this fails if
   # the floating point flags are dropped from either target.
