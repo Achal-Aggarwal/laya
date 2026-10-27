@@ -3935,3 +3935,18 @@ def test_chunking_folds_criteria_key_order_on_the_request_form():
                              evaluators=[ChoiceAccuracy()], batch_size=2)
     assert listed_report.config["timing"]["rows_grouped"] == 0, \
         "a reordered list criteria stays positional even for the request form"
+
+
+
+def test_a_short_batch_result_is_an_error_not_a_silent_drop():
+    """A runner that returns fewer results than rows must not under-score the report."""
+    class ShortBatch:
+        def predict(self, state, questions, model=None):
+            return {"answers": {"intent": choice_answer("a")}}
+
+        def predict_batch(self, states, questions, model=None, batch_size=None):
+            return [self.predict(state, questions) for state in states][:-1]
+
+    dataset = Dataset([Example("s%d" % i, Q, {"intent": "a"}) for i in range(4)])
+    with pytest.raises(EvalError, match="4 rows"):
+        evaluate(ShortBatch(), dataset, batch_size=4)
