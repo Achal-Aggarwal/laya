@@ -1389,7 +1389,14 @@ def assert_regression(report: EvalReport, baseline: Dict[str, Any],
     """Raise AssertionError when `report` drifts from `baseline` beyond `tolerances`."""
     ok, deltas = report.compare(baseline, tolerances)
     if not ok:
+        # `compare()` fails three shapes, and only the numeric one makes `abs(diff) > tolerance`
+        # true: a missing metric and an incomparable coverage definition both store a NaN diff
+        # (laya/evals.py:928-936), and every comparison with NaN is False, which is exactly why
+        # compare() tests `not abs(diff) <= allowed` (comment at laya/evals.py:946-949). Filtering
+        # on `>` alone dropped both, so the gate raised "evaluation regressed: {}" and lost the
+        # metric and the reason compare() had already computed.
         failed = {m: d for m, d in deltas.items()
-                  if d.get("missing") or abs(d["diff"]) > d["tolerance"]}
+                  if d.get("missing") or d.get("incomparable")
+                  or not abs(d["diff"]) <= d["tolerance"]}
         raise AssertionError("evaluation regressed: %s" % json.dumps(failed, sort_keys=True))
     return deltas
