@@ -1,0 +1,99 @@
+name: C++
+
+# Build lane for laya-cpp. Like the Go, .NET and Java lanes it runs on every push and pull request
+# with no path filter. This first change carries a skeleton only (no library code, no goldens, no
+# ONNX Runtime), so there is no parity against the Python reference yet; what the lane proves is
+# that the toolchain builds, tests run, and the numeric flags are in force.
+#
+# The build job is ADVISORY (`continue-on-error`) for the reason the other ports are: the Python
+# package is the product and the port follows it.
+#
+# Two things hold the lane honest, each there because a green run could otherwise mean nothing:
+#
+#   * Fail on skip, and a floor: ctest reports a skipped test as success. Each cell writes JUnit
+#     XML and laya-cpp/scripts/check_test_xml.py counts instead of trusting the exit status: any
+#     skip, any failure and any shortfall below the floor fails the step.
+#   * The flags are tested: the `compile_flags` ctest fails if -ffp-contract=off or
+#     -fno-fast-math is missing from a laya-cpp translation unit.
+#
+# The security job is NOT advisory, as in go.yml.
+#
+# TODO(security): CodeQL for C++ is not added here. go.yml has no CodeQL step; CodeQL lives in the
+# `codeql` matrix of security.yml, and a `cpp` cell there needs a manual build step and is a
+# follow-up for the maintainer to agree to, not a pin invented in this change.
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpp-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The test floor: the number of ctest tests laya-cpp registers (the GoogleTest cases plus
+  # compile_flags). Raise it with every test added.
+  MIN_TESTS: "2"
+
+jobs:
+  build:
+    name: build (${{ matrix.compiler }}, ${{ matrix.preset }})
+    runs-on: ubuntu-latest
+    continue-on-error: true   # advisory: see the header
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        preset: [debug, asan-ubsan]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Checker tests
+        run: python laya-cpp/scripts/test_check_test_xml.py
+
+      - name: Configure
+        working-directory: laya-cpp
+        run: cmake --preset "${{ matrix.preset }}" -DCMAKE_CXX_COMPILER="${{ matrix.compiler }}"
+
+      - name: Build
+        working-directory: laya-cpp
+        run: cmake --build --preset "${{ matrix.preset }}"
+
+      - name: Test
+        working-directory: laya-cpp
+        run: ctest --preset "${{ matrix.preset }}" --output-junit "$RUNNER_TEMP/ctest.xml"
+
+      - name: Count tests (fail on skip, enforce the floor)
+        if: ${{ !cancelled() }}
+        run: python laya-cpp/scripts/check_test_xml.py "$RUNNER_TEMP/ctest.xml" --min-tests "$MIN_TESTS"
+
+  security:
+    name: cpp security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Standard library only, so no install step.
+      - name: No workflow folds a comment into a run block
+        run: python laya-java/scripts/check_workflow_folding.py
+
+      # FetchContent runs code from the fetched repository at build time, so the commit it pins
+      # must be the one the upstream tag names, checked on every run and not once by hand.
+      - name: GoogleTest pin matches the upstream tag
+        run: |
+          pinned=$(sed -n 's/^ *GIT_TAG \([0-9a-f]\{40\}\))*$/\1/p' laya-cpp/CMakeLists.txt)
+          tagged=$(git ls-remote https://github.com/google/googletest refs/tags/v1.18.0 | cut -f1)
+          echo "pinned=$pinned tagged=$tagged"
+          test -n "$pinned" && test "$pinned" = "$tagged"
