@@ -406,6 +406,29 @@ check("batch empty file: exit 2, no calls",
       code == 2 and "no requests" in err and stub.predict_batch_calls == [],
       "code %r err %r" % (code, err))
 
+# Same BOM, one reader over: a batch file saved by a Windows editor used to send U+FEFF as the
+# first character of the first request, which the model then read as part of the text.
+bom_batch = os.path.join(tmp, "bom-requests.txt")
+with open(bom_batch, "wb") as handle:
+    handle.write(b"\xef\xbb\xbffirst ticket\nsecond ticket\n")
+code, out, err, stub = run_batch_cli(["--batch", bom_batch, "--predict"])
+requests = stub.predict_batch_calls[0][0] if stub.predict_batch_calls else []
+check("batch: a UTF-8 BOM does not become part of the first request",
+      code == 0 and [r["state"]["request"] for r in requests] == ["first ticket", "second ticket"],
+      "code %r states %r err %r" % (code, [r["state"] for r in requests], err))
+
+_bom_stdin = io.TextIOWrapper(io.BytesIO(b"\xef\xbb\xbffirst ticket\nsecond ticket\n"), encoding="utf-8")
+_original_stdin = sys.stdin
+sys.stdin = _bom_stdin
+try:
+    code, out, err, stub = run_batch_cli(["--batch", "-", "--predict"])
+finally:
+    sys.stdin = _original_stdin
+requests = stub.predict_batch_calls[0][0] if stub.predict_batch_calls else []
+check("batch -: a UTF-8 BOM on a piped stream is not part of the first request",
+      code == 0 and [r["state"]["request"] for r in requests] == ["first ticket", "second ticket"],
+      "code %r states %r err %r" % (code, [r["state"] for r in requests], err))
+
 _original_stdin = sys.stdin
 sys.stdin = io.StringIO("piped one\npiped two\n")
 try:
@@ -709,6 +732,14 @@ code, out, err, stub = run_cli(["hi", "--questions", deep_path], router=Question
 check("questions: too-deep JSON is exit 2, not a download-error message",
       code == 2 and "nested deeper" in err and "checkpoint" not in err,
       "code %r err %r" % (code, err))
+
+# A UTF-8 BOM is what Notepad and Excel write. The other file readers in this repo open with
+# `utf-8-sig` for exactly that reason (docker/entrypoint.py, laya/train.py), but this one read
+# plain utf-8, so the BOM became U+FEFF and a valid questions file was refused as "not valid JSON".
+bom_questions = write_raw("bom-questions.json", b"\xef\xbb\xbf" + _json.dumps(INTENTS).encode("utf-8"))
+code, out, err, stub = run_cli(["hello", "--questions", bom_questions], router=QuestionRecorder())
+check("questions: a UTF-8 BOM file is read, not refused as invalid JSON",
+      code == 0 and stub.questions == INTENTS, "code %r err %r" % (code, err))
 
 code, out, err, stub = run_cli(["hi", "--questions", INTENTS_PATH, "--preset", "triage"],
                                router=QuestionRecorder())
