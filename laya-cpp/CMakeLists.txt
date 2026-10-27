@@ -48,6 +48,10 @@ if(LAYA_BUILD_TESTS)
   target_link_libraries(laya_tests PRIVATE laya GTest::gtest_main)
   laya_target_flags(laya_tests)
 
+  add_executable(laya_cli tests/tools/laya_cli.cpp)
+  target_link_libraries(laya_cli PRIVATE laya)
+  laya_target_flags(laya_cli)
+
   include(GoogleTest)
   # PRE_TEST: the parametrized rows are counted from the goldens, which exist at test time.
   gtest_discover_tests(laya_tests DISCOVERY_MODE PRE_TEST)
