@@ -65,6 +65,67 @@ class CheckerTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("DTD", out)
 
+    def test_dtd_in_utf16_is_refused(self):
+        text = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY a "b">]>' + report(PASS % "a")
+        with tempfile.NamedTemporaryFile("wb", suffix=".xml", delete=False) as handle:
+            handle.write(text.encode("utf-16"))
+        try:
+            done = subprocess.run([sys.executable, CHECKER, handle.name], capture_output=True, text=True)
+        finally:
+            os.unlink(handle.name)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("DTD", done.stdout + done.stderr)
+
+    def test_status_fail_without_child_fails(self):
+        code, out = run(report('<testcase name="a" classname="S" status="fail"/>'))
+        self.assertEqual(code, 1)
+        self.assertIn("failed: S.a", out)
+
+    def test_error_child_fails(self):
+        code, out = run(report('<testcase name="a" classname="S" status="run"><error/></testcase>'))
+        self.assertEqual(code, 1)
+        self.assertIn("failed: S.a", out)
+
+    def test_root_must_be_testsuite(self):
+        code, out = run('<other><testcase name="a" classname="S" status="run"/></other>')
+        self.assertEqual(code, 1)
+        self.assertIn("unexpected root", out)
+
+    def test_real_ctest_disabled_and_skipped_fail(self):
+        fixture = os.path.join(HERE, "fixtures", "ctest-disabled-and-skipped.xml")
+        done = subprocess.run([sys.executable, CHECKER, fixture], capture_output=True, text=True)
+        out = done.stdout + done.stderr
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("status=disabled", out)
+        self.assertIn("skipped: Extra.Skipped", out)
+
+    def test_disabled_status_alone_fails(self):
+        code, out = run(report(PASS % "a", '<testcase name="b" classname="S" status="disabled"/>'))
+        self.assertEqual(code, 1)
+        self.assertIn("status=disabled", out)
+
+    def test_oversize_report_fails(self):
+        big = report(PASS % "a") + "<!--" + "x" * (16 * 1024 * 1024) + "-->"
+        code, out = run(big)
+        self.assertEqual(code, 1)
+        self.assertIn("over", out)
+
+    def test_duplicate_report_path_fails(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as handle:
+            handle.write(report(PASS % "a"))
+        try:
+            done = subprocess.run([sys.executable, CHECKER, handle.name, handle.name],
+                                  capture_output=True, text=True)
+        finally:
+            os.unlink(handle.name)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("twice", done.stderr)
+
+    def test_negative_floor_fails(self):
+        code, out = run(report(PASS % "a"), "--min-tests", "-1")
+        self.assertEqual(code, 1)
+        self.assertIn("negative", out)
+
     def test_wrong_root_fails(self):
         code, _ = run("<html/>")
         self.assertEqual(code, 1)

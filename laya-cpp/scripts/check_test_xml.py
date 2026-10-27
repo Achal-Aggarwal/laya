@@ -8,26 +8,47 @@ and counts instead of trusting the exit status.
     ctest --test-dir build/debug --output-junit junit.xml
     python laya-cpp/scripts/check_test_xml.py junit.xml --min-tests 2
 
-Exit 0 only when no test skipped, none failed or errored, and at least --min-tests ran. A disabled
-test (`status="notrun"`) counts as skipped. Several report files may be given; counts add up.
+Exit 0 only when every test case has status `run` (or none), none failed or errored, and at least
+--min-tests ran. Any other status fails: ctest writes `disabled` (a DISABLED_ test or a DISABLED
+property, with no <skipped> child) and `notrun` (a skip, with a <skipped> child); GoogleTest's own
+XML writes `notrun` for a disabled test. Several report files may be given; counts add up. A report
+over 16 MiB or with a DTD (any encoding) is refused.
 """
 import argparse
 import os
 import sys
-# XXE and entity bombs need a DTD, and summarise() refuses any report that has one, so the stdlib
-# parser is safe here and the checker keeps to the standard library.
 import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml
+import xml.parsers.expat as expat  # nosemgrep: use-defused-xml
+
+# The stdlib parser is used with DTDs refused (see _refuse_dtd) so the checker stays standard library.
+
+MAX_BYTES = 16 * 1024 * 1024
+
+
+def _refuse(*_args):
+    raise ValueError("a DTD or entity declaration is not allowed in a test report")
+
+
+def _refuse_dtd(data):
+    """Parse once with expat, which decodes the document first, so a UTF-16 report cannot hide a
+    DOCTYPE from it the way it hides one from a byte search. XXE and entity bombs need a DTD."""
+    guard = expat.ParserCreate()
+    guard.StartDoctypeDeclHandler = _refuse
+    guard.EntityDeclHandler = _refuse
+    guard.UnparsedEntityDeclHandler = _refuse
+    guard.Parse(data, True)
 
 
 def summarise(path):
     """(tests, problems) for one report file. Raises ValueError on a malformed report."""
     try:
+        if os.path.getsize(path) > MAX_BYTES:
+            raise ValueError("%s is over %d bytes" % (path, MAX_BYTES))
         with open(path, "rb") as handle:
             data = handle.read()
-        if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
-            raise ValueError("%s: a DTD is not allowed in a test report" % path)
+        _refuse_dtd(data)
         root = ET.fromstring(data)
-    except (ET.ParseError, OSError) as err:
+    except (ET.ParseError, expat.ExpatError, OSError) as err:
         raise ValueError("%s is not a readable XML report: %s" % (path, err))
     if root.tag not in ("testsuites", "testsuite"):
         raise ValueError("%s: unexpected root element <%s>" % (path, root.tag))
@@ -36,9 +57,14 @@ def summarise(path):
         tests += 1
         name = "%s.%s" % (case.get("classname") or "", case.get("name") or "?")
         children = {child.tag for child in case}
-        if "skipped" in children or case.get("status") == "notrun":
+        status = case.get("status")
+        if "skipped" in children:
             problems.append("skipped: " + name)
-        if "failure" in children or "error" in children or case.get("status") == "fail":
+        elif status == "fail":
+            problems.append("failed: " + name)
+        elif status not in (None, "run"):
+            problems.append("not run (status=%s): %s" % (status, name))
+        if "failure" in children or "error" in children:
             problems.append("failed: " + name)
     return tests, problems
 
@@ -49,6 +75,13 @@ def main(argv=None):
     parser.add_argument("--min-tests", type=int, default=1,
                         help="fail when fewer tests than this ran")
     args = parser.parse_args(argv)
+    if args.min_tests < 0:
+        print("check_test_xml: --min-tests must not be negative", file=sys.stderr)
+        return 1
+    if len(set(os.path.realpath(r) for r in args.reports)) != len(args.reports):
+        print("check_test_xml: the same report is listed twice; its tests would count twice",
+              file=sys.stderr)
+        return 1
     total, problems = 0, []
     for path in args.reports:
         if not os.path.isfile(path):

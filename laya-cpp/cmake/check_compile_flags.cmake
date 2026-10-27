@@ -24,6 +24,13 @@ foreach(i RANGE ${last})
       message(FATAL_ERROR "${file} was compiled without ${flag}:\n${command}")
     endif()
   endforeach()
+  # A later flag overrides an earlier one, so a conflicting flag anywhere fails, whoever added it
+  # (target options, CMAKE_CXX_FLAGS or the environment).
+  foreach(arg IN LISTS args)
+    if(arg MATCHES "^(-ffast-math|-Ofast|-ffp-contract=(on|fast)|-funsafe-math-optimizations|-fassociative-math|-ffinite-math-only|-freciprocal-math|-fno-signed-zeros)$")
+      message(FATAL_ERROR "${file} was compiled with ${arg}, which overrides the required flags:\n${command}")
+    endif()
+  endforeach()
   math(EXPR checked "${checked} + 1")
 endforeach()
 if(checked LESS 2)

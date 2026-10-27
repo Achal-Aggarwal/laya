@@ -9,7 +9,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Floating point must match the Python reference bit for bit: no fused multiply-add, no fast math.
+# Floating point should match the Python reference: no fused multiply-add, no fast math.
+# GCC and Clang get -ffp-contract=off. MSVC gets /fp:precise, which only disables fast-math
+# reassociation and, before VS2022, does not by itself forbid contraction; the MSVC branch is
+# untested and is not exercised by CI until the Windows lane (C11).
 if(MSVC)
   set(LAYA_FP_FLAGS /fp:precise)
   set(LAYA_WARN_FLAGS /W4 /WX)
