@@ -123,3 +123,21 @@ TEST(Lang, InvalidUtf8MatchesPython) {
     EXPECT_EQ(lg::StateText(pv::Value::String(bytes)), text.value(i).as_string()) << "row " << i;
   }
 }
+
+// Boundary cases (ties, exact thresholds, 3 vs 4 words, the Latin range edge) with expectations
+// recorded from laya.lang by laya-e2e/cpp-lane/fuzz-c1/gen_boundary.py. They are source text, not a
+// golden, so they run in every build and pin the mutants the parity rows alone do not.
+TEST(Lang, BoundaryCasesMatchPython) {
+  struct Row { const char* text; const char* script; const char* language; bool english; double rate; double nl; };
+  static const Row rows[] = {
+#include "lang_boundary.inc"
+  };
+  for (const Row& r : rows) {
+    lg::Analysis a = lg::Analyze(std::string_view(r.text));
+    EXPECT_EQ(a.script, r.script) << r.text;
+    EXPECT_EQ(a.language, r.language) << r.text;
+    EXPECT_EQ(a.english, r.english) << r.text;
+    EXPECT_EQ(a.diacritic_rate, r.rate) << r.text;
+    EXPECT_EQ(a.non_latin_fraction, r.nl) << r.text;
+  }
+}
