@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <unordered_map>
 
+#include "cnum.hpp"
 #include "laya/pyjson.hpp"
 #include "laya/unicodedata.hpp"
 
@@ -55,19 +56,17 @@ Value Value::Object() {
 }
 
 const Value* Value::Find(std::string_view k) const {
-  for (size_t i = 0; i < keys_.size(); i++) {
-    if (keys_[i] == k) return &vals_[i];
-  }
-  return nullptr;
+  auto it = index_.find(std::string(k));
+  return it == index_.end() ? nullptr : &vals_[it->second];
 }
 
 void Value::Set(std::string k, Value v) {
-  for (size_t i = 0; i < keys_.size(); i++) {
-    if (keys_[i] == k) {
-      vals_[i] = std::move(v);
-      return;
-    }
+  auto it = index_.find(k);
+  if (it != index_.end()) {
+    vals_[it->second] = std::move(v);
+    return;
   }
+  index_.emplace(k, keys_.size());
   keys_.push_back(std::move(k));
   vals_.push_back(std::move(v));
 }
@@ -163,7 +162,6 @@ class Parser {
 
   Result<Value> Obj(int depth) {
     Value obj = Value::Object();
-    std::unordered_map<std::string, size_t> at;
     Space();
     if (i_ < s_.size() && s_[i_] == '}') {
       i_++;
@@ -301,7 +299,7 @@ class Parser {
       return Result<Value>::Ok(Value::BigInt(text));
     }
     // Out of range is +-Inf, as float("1e400") is in Python.
-    return Result<Value>::Ok(Value::Float(std::strtod(text.c_str(), nullptr)));
+    return Result<Value>::Ok(Value::Float(cnum::ToDouble(text)));
   }
 
  public:

@@ -16,6 +16,11 @@ name: C++
 #   * The flags are tested: the `compile_flags` ctest fails if -ffp-contract=off or
 #     -fno-fast-math is missing from a laya-cpp translation unit.
 #
+# Goldens need HF_TOKEN (the tokenizer fetch) and the Python toolchain. A pull request from a fork
+# gets no secrets: the fetch then runs unauthenticated (rate-limited) and may fail, which marks this
+# advisory job red without blocking the PR, as in go.yml. Each matrix leg regenerates everything
+# because the job is the unit of isolation; the shared families are small, the cost is the torch install.
+#
 # The security job is NOT advisory, as in go.yml, and `build` needs it: the fetched GoogleTest
 # commit is verified against the upstream tag before anything is built. Be clear about what it is:
 # the pin check and the workflow-folding check only. There is NO static analyzer for C++ in this
@@ -37,7 +42,7 @@ concurrency:
 env:
   # The test floor: the number of ctest tests laya-cpp registers (the GoogleTest cases plus
   # compile_flags). Raise it with every test added.
-  MIN_TESTS: "206"
+  MIN_TESTS: "212"
   GOLDENS: ${{ github.workspace }}/.cpp-goldens
   LAYA_GOLDENS: ${{ github.workspace }}/.cpp-goldens
   LAYA_REQUIRE_GOLDENS: "1"   # a missing golden is a failure, never a skip
@@ -64,6 +69,10 @@ jobs:
 
       - name: Checker tests
         run: python laya-cpp/scripts/test_check_test_xml.py
+
+      # The Locale test needs a comma-decimal locale; a missing one is a skip and the floor check fails.
+      - name: Install a comma-decimal locale
+        run: sudo locale-gen de_DE.UTF-8
 
       # Goldens are recorded from the Python reference at this commit, never read from a committed copy.
       - name: Install the Python toolchain the goldens are recorded with

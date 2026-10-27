@@ -54,12 +54,19 @@ inline const Value* At(const Value* v, std::initializer_list<const char*> path) 
   return v;
 }
 
-// A test body's view of one golden list: fails (or skips locally) when it cannot be had.
-#define LAYA_GOLDEN_LIST(var, file, ...)                                                  \
-  const laya::pyvalue::Value* var = laya_test::At(laya_test::Load(file, true), {__VA_ARGS__}); \
-  if (var == nullptr) {                                                                   \
-    if (!HasFailure()) GTEST_SKIP() << "LAYA_GOLDENS unset (local run)";                  \
-    return;                                                                               \
+inline bool RequireGoldens() {
+  const char* r = std::getenv("LAYA_REQUIRE_GOLDENS");
+  return r != nullptr && std::string(r) == "1";
+}
+
+// A test body's view of one golden list. Absent goldens skip locally; with LAYA_REQUIRE_GOLDENS=1 a
+// missing directory, file or key path FAILS, so a renamed key cannot turn a parity test into a skip.
+#define LAYA_GOLDEN_LIST(var, file, ...)                                                          \
+  const laya::pyvalue::Value* var = laya_test::At(laya_test::Load(file, true), {__VA_ARGS__});    \
+  if (var == nullptr) {                                                                           \
+    if (laya_test::RequireGoldens()) GTEST_FAIL() << "golden key path missing in " << file;       \
+    if (!::testing::Test::HasFailure()) GTEST_SKIP() << "LAYA_GOLDENS unset (local run)";                          \
+    return;                                                                                       \
   }
 
 constexpr size_t kChunk = 100;  // rows per test case in the large families

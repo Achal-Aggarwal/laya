@@ -44,7 +44,7 @@ if(LAYA_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(laya_tests tests/version_test.cpp tests/foundation_test.cpp tests/lang_test.cpp)
+  add_executable(laya_tests tests/version_test.cpp tests/foundation_test.cpp tests/lang_test.cpp tests/hardening_test.cpp)
   target_link_libraries(laya_tests PRIVATE laya GTest::gtest_main)
   laya_target_flags(laya_tests)
 

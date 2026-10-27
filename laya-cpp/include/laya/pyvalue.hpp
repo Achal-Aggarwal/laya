@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "laya/result.hpp"
@@ -53,10 +54,15 @@ class Value {
   double d_ = 0;
   std::string s_;
   std::vector<std::string> keys_;
+  std::unordered_map<std::string, size_t> index_;  // key -> position, so Set and Find are O(1)
   std::vector<Value> vals_;
 };
 
-// json.loads of one document of UTF-8 text. Refused: invalid UTF-8, a lone surrogate escape, a raw
+// json.loads of one document of UTF-8 text, as json.loads(str) reads it: a leading byte order mark
+// is refused (json.loads(bytes) would skip it; strip it first to get that behavior). The nesting
+// bound kMaxDepth is laya-go's, not Python's: CPython's RecursionError limit depends on the
+// build and on what is nested (a wrapped value costs more than an empty array), so the two agree
+// on ordinary documents and may differ right around the bound. Refused: invalid UTF-8, a lone surrogate escape, a raw
 // control character in a string, an int literal over 4300 digits, nesting beyond kMaxDepth.
 Result<Value> Parse(std::string_view text);
 // json.dumps(v, ensure_ascii=False) with the default ", " and ": " separators. Fails on a string

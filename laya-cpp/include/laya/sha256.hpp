@@ -11,9 +11,10 @@ namespace laya {
 class Sha256 {
  public:
   Sha256();
-  void Update(const void* data, size_t size);
-  void Update(std::string_view s) { Update(s.data(), s.size()); }
-  // Finishes the hash; the object must not be updated afterwards.
+  // Returns false, and changes nothing, once Finish has been called.
+  bool Update(const void* data, size_t size);
+  bool Update(std::string_view s) { return Update(s.data(), s.size()); }
+  // Finishes the hash. Calling it again returns the same digest.
   std::array<uint8_t, 32> Finish();
 
  private:
@@ -22,6 +23,8 @@ class Sha256 {
   uint8_t buf_[64];
   size_t used_ = 0;
   uint64_t total_ = 0;
+  bool finished_ = false;
+  std::array<uint8_t, 32> digest_{};
 };
 
 std::array<uint8_t, 32> Sha256Of(std::string_view data);

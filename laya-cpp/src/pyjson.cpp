@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "cnum.hpp"
 #include "laya/unicodedata.hpp"
 
 namespace laya {
@@ -97,16 +98,12 @@ std::string Percent0(double fraction) {
   double scaled = 100 * fraction;
   if (std::isnan(scaled)) return "nan";
   if (std::isinf(scaled)) return scaled > 0 ? "inf" : "-inf";
-  char buf[400];
-  std::snprintf(buf, sizeof buf, "%.0f", scaled);
-  return buf;
+  return cnum::Fixed(scaled, 0);
 }
 
 double Round4(double v) {
   if (std::isnan(v) || std::isinf(v)) return v;
-  char buf[400];
-  std::snprintf(buf, sizeof buf, "%.4f", v);
-  return std::strtod(buf, nullptr);
+  return cnum::ToDouble(cnum::Fixed(v, 4));
 }
 
 }  // namespace pyjson

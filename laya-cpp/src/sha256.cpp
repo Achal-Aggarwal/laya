@@ -57,7 +57,8 @@ void Sha256::Block(const uint8_t* p) {
   h_[7] += h;
 }
 
-void Sha256::Update(const void* data, size_t size) {
+bool Sha256::Update(const void* data, size_t size) {
+  if (finished_) return false;
   const uint8_t* p = static_cast<const uint8_t*>(data);
   total_ += size;
   while (size > 0) {
@@ -72,9 +73,11 @@ void Sha256::Update(const void* data, size_t size) {
       used_ = 0;
     }
   }
+  return true;
 }
 
 std::array<uint8_t, 32> Sha256::Finish() {
+  if (finished_) return digest_;
   const uint64_t bits = total_ * 8;
   uint8_t pad[72] = {0x80};
   // Pad with 0x80 then zeros to 56 mod 64, then the 64-bit big-endian bit length.
@@ -83,7 +86,8 @@ std::array<uint8_t, 32> Sha256::Finish() {
   for (int i = 0; i < 8; i++) len[i] = uint8_t(bits >> (56 - 8 * i));
   Update(pad, padlen);
   Update(len, 8);
-  std::array<uint8_t, 32> out{};
+  finished_ = true;
+  std::array<uint8_t, 32>& out = digest_;
   for (int i = 0; i < 8; i++) {
     out[4 * i] = uint8_t(h_[i] >> 24);
     out[4 * i + 1] = uint8_t(h_[i] >> 16);

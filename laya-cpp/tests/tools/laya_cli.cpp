@@ -3,6 +3,8 @@
 //   json  -> "ok <hex of json.dumps(json.loads(x))>" or "err"
 //   lower -> hex of str.lower()          sha -> hex digest
 //   lang  -> "<script>|<language>|<english>|<diacritic>|<non_latin>|<hex mixed_segment>"
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 
@@ -47,6 +49,25 @@ int main() {
       laya::lang::Analysis a = laya::lang::Analyze(std::string_view(data));
       std::cout << a.script << "|" << a.language << "|" << (a.english ? 1 : 0) << "|" << laya::pyjson::ReprFloat(a.diacritic_rate)
                 << "|" << laya::pyjson::ReprFloat(a.non_latin_fraction) << "|" << Hex(a.mixed_segment) << "\n";
+    } else if (kind == "strip") {
+      std::cout << Hex(laya::unicodedata::Strip(data)) << "\n";
+    } else if (kind == "stripn") {
+      std::cout << Hex(laya::unicodedata::StripNumeric(data)) << "\n";
+    } else if (kind == "fields") {
+      for (const auto& f : laya::unicodedata::Fields(data)) std::cout << Hex(f) << ",";
+      std::cout << "\n";
+    } else if (kind == "dec") {
+      std::cout << Hex(laya::unicodedata::DecimalASCII(data)) << "\n";
+    } else if (kind == "isup") {
+      std::cout << (laya::unicodedata::IsUpperString(data) ? "1" : "0") << "\n";
+    } else if (kind == "repr") {
+      std::cout << Hex(laya::pyjson::Repr(data)) << "\n";
+    } else if (kind == "float") {  // the payload here is decimal bits, not hex
+      uint64_t bits = std::strtoull(line.substr(sp + 1).c_str(), nullptr, 10);
+      double v;
+      std::memcpy(&v, &bits, 8);
+      std::cout << laya::pyjson::ReprFloat(v) << "|" << laya::pyjson::ReprFloat(laya::pyjson::Round4(v)) << "|"
+                << laya::pyjson::Percent0(v) << "\n";
     } else {
       std::cout << "?\n";
     }
