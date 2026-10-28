@@ -456,6 +456,8 @@ apply one batch-wide threshold; it is not part of the request grouping.
 
 `Answer.JevConfidence()` is Python's `jev_confidence`: the `confidence` Jev would report for the answer's
 (rounded) probabilities, `null` for noul answers and malformed probabilities.
+It sums the probabilities as CPython 3.12 and later do (`sum()` of floats is compensated from 3.12 on), so its
+last digits match laya on Python 3.12+, not on 3.10 or 3.11; the goldens are recorded with 3.12.
 
 ---
 
@@ -1029,10 +1031,14 @@ together with the C# change that follows it.
 `.github/workflows/dotnet.yml` runs the same chain on every push and pull request (there is no path
 filter, so a change under `laya/` triggers it): the `build` job re-records the routing goldens,
 builds the whole solution with warnings as errors and runs the tests that need no model; one
-`parity` job per checkpoint (and one for the router end-to-end tests, which need english and
-multilingual together) exports that checkpoint, re-records its goldens from the Python code at
-that commit and runs its model-backed classes against them. `LAYA_TEST_CHECKPOINTS` selects the
-checkpoint theory rows (ordinary local runs still cover all checkpoints). Every job then runs
+`parity` job per checkpoint and layout (fused, split), and one for the router end-to-end tests
+(which need english and multilingual together), exports that checkpoint, re-records its goldens
+from the Python code at that commit and runs its model-backed classes against them.
+`LAYA_TEST_CHECKPOINTS` selects the checkpoint theory rows and `LAYA_TEST_LAYOUTS` (`fused`,
+`split`, or both when unset) the layout rows of the theories that have one per layout; the
+split-only tests carry `[Trait("Layout", "split-only")]` and the layout-parameterised ones
+`Layout=any`, which the split cell selects with `--filter-trait` (ordinary local runs still cover
+everything). Every job then runs
 `tools/check_test_skips.py`, because `dotnet test` reports skipped tests as success: it fails the
 run when any test that should have run was skipped, and tolerates only the skips for checkpoints
 the job does not export. The job logs print `git diff --stat` of the regenerated goldens against

@@ -169,6 +169,41 @@ public static class TestArtifacts
         }
     }
 
+    /// <summary>
+    /// The trait that places a layout-specific test in a CI cell: <c>Layout=split-only</c> runs
+    /// against the split export only, <c>Layout=any</c> is parameterised by layout (its rows are
+    /// narrowed by <see cref="ParitySplitFlags"/>), and an untagged test is fused or layout
+    /// independent. A split cell runs <c>split-only</c> and <c>any</c>; a fused cell runs everything
+    /// except <c>split-only</c>. Filtering by trait (rather than skipping at run time) means a
+    /// deselected layout produces no skipped test.
+    /// </summary>
+    public const string LayoutTrait = "Layout";
+
+    /// <summary>Value of <see cref="LayoutTrait"/> for a test that only exercises the split layout.</summary>
+    public const string SplitOnly = "split-only";
+
+    /// <summary>Value of <see cref="LayoutTrait"/> for a theory with a fused and a split row per case.</summary>
+    public const string AnyLayout = "any";
+
+    /// <summary>
+    /// The <c>split</c> flag values a layout-parameterised theory yields (<c>false</c> is the fused
+    /// layout, <c>true</c> the split one). <c>LAYA_TEST_LAYOUTS</c> is a space-separated list of
+    /// <c>fused</c> and <c>split</c>; unset selects both, so ordinary local runs are unchanged.
+    /// </summary>
+    public static IEnumerable<bool> ParitySplitFlags
+    {
+        get
+        {
+            var selected = Environment.GetEnvironmentVariable("LAYA_TEST_LAYOUTS");
+            if (string.IsNullOrWhiteSpace(selected))
+                return [false, true];
+            var names = selected.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (names.Any(name => name != "fused" && name != "split"))
+                throw new ArgumentException($"unknown LAYA_TEST_LAYOUTS: {selected}");
+            return new[] { false, true }.Where(split => names.Contains(split ? "split" : "fused"));
+        }
+    }
+
     // One CheckpointTestArtifacts per enum value; indexed by the enum's integer value.
     private static readonly CheckpointTestArtifacts[] ByCheckpoint =
         Enum.GetValues<LayaCheckpoint>().Select(c => new CheckpointTestArtifacts(c)).ToArray();
