@@ -1824,6 +1824,73 @@ def _lifecycle_case(label, router_kwargs, hooks, ops):
     return record
 
 
+def digests_row(env, argument, pin):
+    """One router_digests row: Router(sha256_digests=argument) under LAYA_SHA256_DIGESTS=env (None:
+    unset), and the map each checkpoint would be built with given the shared `pin`."""
+    from unittest import mock
+    from laya.router import Router, _digest_entry, _merge_expected_digests
+
+    row = {"env": env, "argument": argument, "shared": pin}
+    with mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("LAYA_SHA256_DIGESTS", None)
+        if env is not None:
+            os.environ["LAYA_SHA256_DIGESTS"] = env
+        try:
+            router = Router(sha256_digests=argument)
+        except ValueError as exc:
+            row["error"] = str(exc)
+        else:
+            row["table"] = {k: router.sha256_digests[k] for k in sorted(router.sha256_digests)}
+            row["expected"] = {
+                name: _merge_expected_digests(pin, _digest_entry(router.sha256_digests, name))
+                for name in ("english", "multilingual", "typed-decisions")}
+    return row
+
+
+def router_digests_family():
+    """What the real Router holds and merges for per-checkpoint SHA-256 pins: the
+    LAYA_SHA256_DIGESTS layering (flat, nested, mixed, malformed), the `sha256_digests` argument
+    (explicit None masks), the `agent_kwargs["expected_sha256"]` channel and the merge. Each row is
+    either an error text from Router(...) or the table plus, per checkpoint, the map
+    _merge_expected_digests hands Agent (null: none passed). No model runs."""
+    a, b, c, d, e = ("%s" % ch * 64 for ch in "abcde")
+    english = {"model.safetensors": a}
+    multi = {"model.safetensors": b}
+    shared_pin = {"tokenizer.json": d}
+    envs = [
+        None, "", "   ", "{not json", "[]", '"digests"', "{}", "null", "7",
+        json.dumps({"model.safetensors": a}),
+        json.dumps({"model.safetensors": a, "tokenizer.json": d}),
+        json.dumps({"english": english, "multilingual": multi}),
+        json.dumps({"en": english}),
+        json.dumps({" ML ": multi}),
+        json.dumps({"english": {}}),
+        json.dumps({"typed": english, "typed-decisions": multi}),
+        json.dumps({"english": english, "english ": multi}),
+        json.dumps({"engligh": english}),
+        json.dumps({"model.safetensors": a, "english": english}),
+        json.dumps({"english": english, "model.safetensors": a}),
+        json.dumps({"english": english, "x": 1}),
+        json.dumps({"english": None}),
+        json.dumps({"a": 1}),
+        json.dumps({"z": 1, "a": "s", "m": None}),
+        json.dumps({"english": english, "multilingual": []}),
+        # Python's json.loads reads these; encoding/json does not
+        '{"english": NaN}', '{"a": -Infinity}', '[NaN]', "NaN",
+        '{"english": {"a": "%s"}, "x": Infinity}' % a,
+        # tokens inside strings (escaped quote, escaped backslash) and glued to other text
+        '{"english": {"a": "x\\":NaN, y"}}', '{"english": {"a": "\\\\"}, "x": NaN}',
+        '{"english": NaNe5}', '{"a": Infinity.5}', '{"english": -Infinity5}', '{"english": {"a": "q"}, "b": NaN1}',
+    ]
+    arguments = [
+        None, {}, {"english": {"model.safetensors": c}}, {"ml": None}, {"engligh": english},
+        {"english": {}}, {"english": None, "multilingual": multi}, {"en": english},
+        {"typed": {"tokenizer.json": e}},
+    ]
+    shared = [None, {}, shared_pin, {"model.safetensors": c}, {"model.safetensors": c, "tokenizer.json": d}]
+    return [digests_row(env, argument, pin) for env in envs for argument in arguments for pin in shared]
+
+
 def lifecycle_family():
     """Eviction order, loaded() sequences, attach/preload/unload and hook events from the real Router
     with a stub Agent: no model runs."""
@@ -1977,6 +2044,7 @@ def build():
         "email_fold": email_fold_family(rng),
         "email_fuzz": email_fuzz_family(rng),
         "lifecycle": lifecycle_family(),
+        "router_digests": router_digests_family(),
     }
 
 

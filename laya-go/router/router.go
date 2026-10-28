@@ -46,12 +46,13 @@ func LangCode(code string) LangHint { return func(any) string { return code } }
 
 // Router routes requests. Build one with New.
 type Router struct {
-	models map[Checkpoint]ModelSpec
-	def    Checkpoint
-	auto   bool
-	hint   LangHint
-	hk     *hookState
-	lc     lifecycle
+	models  map[Checkpoint]ModelSpec
+	def     Checkpoint
+	auto    bool
+	hint    LangHint
+	hk      *hookState
+	lc      lifecycle
+	digests digestTable
 }
 
 // Option configures New.
@@ -66,6 +67,7 @@ type config struct {
 	sources    []source
 	factory    AgentFactory
 	maxLoaded  int
+	digests    []digestPin
 }
 
 type source struct {
@@ -133,8 +135,10 @@ func New(opts ...Option) (*Router, error) {
 	for k, v := range base {
 		r.models[k] = v
 	}
+	var err error
 	for _, s := range c.sources {
-		key, err := NormaliseName(s.name)
+		var key Checkpoint
+		key, err = NormaliseName(s.name)
 		if err != nil {
 			return nil, err
 		}
@@ -142,6 +146,29 @@ func New(opts ...Option) (*Router, error) {
 			s.spec.Repo = expandUser(s.spec.Repo)
 		}
 		r.models[key] = s.spec
+	}
+	if r.digests, err = digestsFromEnv(r.models); err != nil {
+		return nil, err
+	}
+	pins := make(digestTable, len(c.digests))
+	spelled := map[*byte]map[Checkpoint]string{}
+	for _, p := range c.digests {
+		key, err := NormaliseName(p.name)
+		if err != nil {
+			return nil, err
+		}
+		if prior, dup := spelled[p.group][key]; dup {
+			return nil, fmt.Errorf("sha256_digests names %q twice: %q and %q are the same checkpoint",
+				string(key), prior, p.name)
+		}
+		if spelled[p.group] == nil {
+			spelled[p.group] = map[Checkpoint]string{}
+		}
+		spelled[p.group][key] = p.name
+		pins[key] = p.files
+	}
+	for k, v := range pins {
+		r.digests[k] = v
 	}
 	def, err := NormaliseName(c.def)
 	if err != nil {
