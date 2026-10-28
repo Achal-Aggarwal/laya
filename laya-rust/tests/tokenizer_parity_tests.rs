@@ -25,6 +25,14 @@ const CHECKPOINTS: [LayaCheckpoint; 3] = [
     LayaCheckpoint::TypedDecisions,
 ];
 
+/// The checkpoints this run covers (all, or those `LAYA_TEST_CHECKPOINTS` selects).
+fn checkpoints() -> Vec<LayaCheckpoint> {
+    CHECKPOINTS
+        .into_iter()
+        .filter(|c| test_artifacts::is_selected(*c))
+        .collect()
+}
+
 /// Loads the tokenizer for `checkpoint`, or prints a skip line and returns `None` when
 /// `tokenizer/tokenizer.json` is not available locally.
 fn load_tokenizer(checkpoint: LayaCheckpoint) -> Option<HfTokenizer> {
@@ -57,7 +65,7 @@ fn to_u32(values: Vec<i64>) -> Vec<u32> {
 
 #[test]
 fn special_token_ids_match_the_recorded_values() {
-    for checkpoint in CHECKPOINTS {
+    for checkpoint in checkpoints() {
         let Some(tok) = load_tokenizer(checkpoint) else {
             continue;
         };
@@ -110,7 +118,7 @@ fn special_token_ids_match_the_recorded_values() {
 
 #[test]
 fn encodes_every_probe_string_exactly_as_python_does() {
-    for checkpoint in CHECKPOINTS {
+    for checkpoint in checkpoints() {
         let Some(tok) = load_tokenizer(checkpoint) else {
             continue;
         };
@@ -156,7 +164,7 @@ fn adds_no_special_tokens_of_its_own() {
     // The shipped tokenizer.json has a TemplateProcessing post-processor that wraps every encode.
     // Left in place it would inject the checkpoint's CLS and SEP ids into every fragment, shifting
     // all marker positions. HfTokenizer must never invoke it.
-    for checkpoint in CHECKPOINTS {
+    for checkpoint in checkpoints() {
         let Some(tok) = load_tokenizer(checkpoint) else {
             continue;
         };
@@ -178,7 +186,7 @@ fn adds_no_special_tokens_of_its_own() {
 
 #[test]
 fn encodes_the_empty_string_to_nothing() {
-    for checkpoint in CHECKPOINTS {
+    for checkpoint in checkpoints() {
         let Some(tok) = load_tokenizer(checkpoint) else {
             continue;
         };
@@ -192,7 +200,7 @@ fn encodes_the_empty_string_to_nothing() {
 
 #[test]
 fn builds_the_recorded_sequence_for_every_question() {
-    for checkpoint in CHECKPOINTS {
+    for checkpoint in checkpoints() {
         let Some(tok) = load_tokenizer(checkpoint) else {
             continue;
         };
@@ -290,7 +298,7 @@ fn serializes_state_exactly_as_python_does() {
     // State serialization is checkpoint-independent (it is the same JSON serializer for all), but
     // exercising it across checkpoints gives coverage over diverse state shapes in the golden
     // corpus of every checkpoint.
-    for checkpoint in CHECKPOINTS {
+    for checkpoint in checkpoints() {
         let golden = CheckpointGoldenData::for_checkpoint(checkpoint.subdir());
         if !golden.available() {
             continue;
