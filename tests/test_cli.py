@@ -710,6 +710,18 @@ check("questions: too-deep JSON is exit 2, not a download-error message",
       code == 2 and "nested deeper" in err and "checkpoint" not in err,
       "code %r err %r" % (code, err))
 
+# A path that exists but is not a readable file -- here a directory -- is the same fault one step
+# further out: `open()` raises IsADirectoryError, an OSError that run()'s
+# `except (ImportError, OSError, RuntimeError)` reports as "could not run Laya" with advice to check
+# the network. It has to name the path and stay a usage error, like the three cases above.
+questions_dir = os.path.join(_TMP, "a-directory")
+os.makedirs(questions_dir, exist_ok=True)
+code, out, err, stub = run_cli(["hi", "--questions", questions_dir], router=QuestionRecorder())
+check("questions: a directory is exit 2 naming the file, not a runtime error",
+      code == 2 and "cannot be read" in err and questions_dir in err and "could not run Laya" not in err,
+      "code %r err %r" % (code, err))
+check("questions: a directory never reaches predict", stub.questions is None, str(stub.questions))
+
 code, out, err, stub = run_cli(["hi", "--questions", INTENTS_PATH, "--preset", "triage"],
                                router=QuestionRecorder())
 check("questions: two sources refuse each other",
