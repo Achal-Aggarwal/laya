@@ -29,6 +29,16 @@ goldens: 0.4.12).
   small for the options' markers throws the "option markers fit" `ArgumentException`. New interfaces
   `ILayaCallPredictor`, `ILayaLongLangPredictor` and `ILayaLangTemperatures` let a router pass these on; existing
   signatures are unchanged.
+- Calibration files and histogram binning, ported from Python's `calibration=` / `load_calibration`
+  (`apply_calibration_payload`, `apply_binning_map`): `LayaOptions.Calibration`, the path of a JSON file read when the engine
+  is created, after the checkpoint's temperatures and the `LangTemperatures` table. Its `temperature` and
+  `temperature_by_options` replace the checkpoint's (clamped, with Python's warning), and its `binning_map` recalibrates
+  `AnswerConfidence` alone (`int(p * bins)` of the unrounded `max(p)`, then rounded to four places; a bucket it lacks passes
+  through; skipped for a call whose `Lang` the table holds), so `MinConfidence` and the `PredictLong` window choice see the
+  binned value. A file Python refuses throws `InvalidDataException` carrying Python's exception type and text. A version 2 file's
+  checkpoint-identity warning is not emitted: the SDK has no equivalent of Python's `model_id_or_path` string; temperatures,
+  binning and errors are unaffected. A router hands the path to every engine it builds. Existing
+  signatures are unchanged.
 - Abstention gate, ported from Python `laya/confidence.py` (`min_confidence`, `jev_confidence`): `MinConfidence`
   (`Of` for one threshold, `ForBuckets` for a per-option-count map, `BucketKeys`), `LayaPredictOptions`
   with new `LayaEngine.Predict(state, questions, options)` and `LayaRouter.Predict(..., langGuess, options)`
