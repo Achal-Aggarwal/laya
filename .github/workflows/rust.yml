@@ -70,7 +70,16 @@ jobs:
           - name: router
             checkpoints: english multilingual
             test-args: --test router_end_to_end_tests
-            timeout: 30
+            # 60, not 30. This cell selects two checkpoints, so on a cold export cache it pays for
+            # both before a single test runs, and 30 minutes does not cover that: the first run of
+            # this matrix was CANCELLED 29m22s into the export step. Measured cold on that run,
+            # from the sibling cells that did finish their exports: english 23m58s and
+            # multilingual 8m50s, so about 33 minutes of export alone, plus about a minute of
+            # dependency install. The cells above fill the per-checkpoint caches this cell reads,
+            # but a cache is only saved by a job that succeeds, and the key includes laya/common.py,
+            # so a cold path recurs on any change to the model definition rather than just once.
+            # The tests themselves are a handful of requests over two engines.
+            timeout: 60
             min-passed: 3
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
