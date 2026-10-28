@@ -23,6 +23,9 @@ public sealed partial class PredictParityTests
         BatchSize = options.TryGetProperty("batch_size", out var size) ? size.GetInt32() : null,
         SortByLength = options.TryGetProperty("sort_by_length", out var sort) && sort.GetBoolean(),
         MinConfidence = ConfidenceGateTests.MinConfidenceIn(options),
+        Lang = CallOptions.Lang(options),
+        MaxLen = CallOptions.Budget(options, "max_len"),
+        HeadMaxLen = CallOptions.Budget(options, "head_max_len"),
     };
 
     private static List<object?> BatchStates(JsonElement root) =>
@@ -89,13 +92,15 @@ public sealed partial class PredictParityTests
         var questions = GoldenData.BuildQuestions(root.GetProperty("questions"));
         if (questions.Count == 0 || states.Count == 0) return;
 
+        var options = BatchOptions(root.GetProperty("options"));
         using var tokenizer = new HfTokenizer(engine.Artifacts.TokenizerPath);
+        var maxLen = options.MaxLen ?? engine.Config.MaxLen;
+        var headMaxLen = options.HeadMaxLen ?? engine.Config.HeadMaxLen;
         var widths = states.Select(state => questions.Max(q =>
-            SequenceBuilder.Build(tokenizer, state, q.Value, engine.Config.MaxLen, engine.Config.HeadMaxLen,
+            SequenceBuilder.Build(tokenizer, state, q.Value, maxLen, headMaxLen,
                                   PythonJson.IsListState(state)).Ids.Length)).ToArray();
         Assert.Equal(root.GetProperty("state_widths").EnumerateArray().Select(w => w.GetInt32()), widths);
 
-        var options = BatchOptions(root.GetProperty("options"));
         var runs = new List<int[]>();
         BatchPlanning.Execute<int, int>(
             [.. Enumerable.Range(0, states.Count).Cast<object?>()], options.BatchSize, options.SortByLength,

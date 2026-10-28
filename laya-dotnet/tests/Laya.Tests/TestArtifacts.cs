@@ -223,10 +223,18 @@ public sealed class AllEnginesFixture : IDisposable
         for (var i = 0; i < values.Length; i++)
         {
             var checkpoint = values[i]; // captured correctly: new variable each iteration
-            _engines[(int)checkpoint] = new Lazy<LayaEngine>(
-                () => LayaEngine.FromDirectory(TestArtifacts.For(checkpoint).Directory));
-            _splitEngines[(int)checkpoint] = new Lazy<LayaEngine>(
-                () => LayaEngine.FromDirectory(TestArtifacts.For(checkpoint).SplitDirectoryOrNull!));
+            // The recorded language cases name a table of per-language temperatures; an engine that has it answers
+            // every other case as one without (a language is only looked up when a call names one).
+            _engines[(int)checkpoint] = new Lazy<LayaEngine>(() => LayaEngine.Create(new LayaOptions
+            {
+                ModelDirectory = TestArtifacts.For(checkpoint).Directory,
+                LangTemperatures = GoldenData.For(checkpoint).LangTemperatures,
+            }));
+            _splitEngines[(int)checkpoint] = new Lazy<LayaEngine>(() => LayaEngine.Create(new LayaOptions
+            {
+                ModelDirectory = TestArtifacts.For(checkpoint).SplitDirectoryOrNull!,
+                LangTemperatures = GoldenData.For(checkpoint).LangTemperatures,
+            }));
         }
     }
 
