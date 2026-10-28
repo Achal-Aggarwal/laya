@@ -441,6 +441,9 @@ fn batch_options(options: &Value) -> BatchOptions {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     built.min_confidence = golden_data::recorded_min_confidence(options);
+    built.lang = golden_data::recorded_lang(options);
+    built.max_len = golden_data::recorded_budget(options, "max_len");
+    built.head_max_len = golden_data::recorded_budget(options, "head_max_len");
     built
 }
 
