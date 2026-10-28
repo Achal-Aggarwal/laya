@@ -160,7 +160,12 @@ def load_questions(path):
     file declares it. Default ``"request"``, matching bare ``--predict``.
     """
     try:
-        with open(path, encoding="utf-8") as handle:
+        # `utf-8-sig`, not `utf-8`: a questions file written by Notepad or Excel starts with a
+        # UTF-8 BOM, and a plain `utf-8` read leaves it as U+FEFF, so `json.load` refuses a file
+        # that is valid JSON -- with its own "decode using utf-8-sig" hint. The other file readers
+        # in this repo open the same way for the same reason (docker/entrypoint.py,
+        # laya/train.py, scripts/http_inference_smoke.py).
+        with open(path, encoding="utf-8-sig") as handle:
             raw = json.load(handle)
     except FileNotFoundError:
         raise ValueError("no such --questions file: %s" % path)
@@ -328,10 +333,15 @@ def read_batch_lines(source):
         # A pipe is decoded with the locale's codec by default (cp1252 on Windows), not the utf-8 a
         # FILE is read with, so piped non-Latin requests arrived as mojibake.
         if hasattr(sys.stdin, "reconfigure"):
-            sys.stdin.reconfigure(encoding="utf-8")
+            # `utf-8-sig` for the same reason as FILE below: a producer that wrote the stream with
+            # a Windows editor prefixes U+FEFF, which would otherwise become the first request's
+            # first character. It reads plain UTF-8 unchanged when there is no BOM.
+            sys.stdin.reconfigure(encoding="utf-8-sig")
         lines = sys.stdin.read().splitlines()
     else:
-        with open(source, encoding="utf-8") as handle:
+        # `utf-8-sig`: a batch file saved by Notepad or Excel starts with a UTF-8 BOM, which plain
+        # `utf-8` would keep as U+FEFF at the front of the first request.
+        with open(source, encoding="utf-8-sig") as handle:
             lines = handle.read().splitlines()
     return [line.strip() for line in lines if line.strip()]
 
