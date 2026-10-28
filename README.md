@@ -97,8 +97,9 @@ The shipped checkpoints work zero-shot, but fine-tuning on decisions from your o
 ## What's new in 0.4.17
 
 * **Vietnamese stops routing to the English checkpoint.** Its tone-marked vowels now count as
-  non-English diacritics, in `laya/lang.py` and the TypeScript port together, with the Java, Go
-  and C++ tables re-recorded from the same source (#1392).
+  non-English diacritics. "Cảm ơn bạn nhiều nhé" scored a diacritic rate of 0.0 and read as
+  English. Fixed in `laya/lang.py` and carried into all six ports: TypeScript, Rust and .NET
+  directly, and the Java, Go and C++ tables re-recorded from the same source (#1392).
 * **A deciding window keeps its attribution after end hooks.** `predict_long` attributed answers
   by position, so an end hook that reordered results reported the wrong token span without
   saying so (#1369).
