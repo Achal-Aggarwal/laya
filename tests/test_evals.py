@@ -3954,3 +3954,17 @@ def test_assert_regression_names_incomparable_and_nan_deltas():
         assert_regression(EvalReport(overall={"choice_accuracy": 0.8}),
                           {"overall": {"choice_accuracy": 0.8}},
                           {"choice_accuracy": float("nan")})
+
+
+def test_a_short_batch_result_is_an_error_not_a_silent_drop():
+    """A runner that returns fewer results than rows must not under-score the report."""
+    class ShortBatch:
+        def predict(self, state, questions, model=None):
+            return {"answers": {"intent": choice_answer("a")}}
+
+        def predict_batch(self, states, questions, model=None, batch_size=None):
+            return [self.predict(state, questions) for state in states][:-1]
+
+    dataset = Dataset([Example("s%d" % i, Q, {"intent": "a"}) for i in range(4)])
+    with pytest.raises(EvalError, match="4 rows"):
+        evaluate(ShortBatch(), dataset, batch_size=4)

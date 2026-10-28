@@ -1301,6 +1301,15 @@ def evaluate(runner: Any, dataset: Dataset, evaluators: Optional[Sequence[Evalua
                           for offset in range(len(chunk)))
             index += len(chunk)
             continue
+        # One result per row is the batch contract; `zip` below would silently pair the rest of
+        # the chunk with nothing, so a runner that drops a row would score a subset while
+        # `rows_grouped` still counted every row -- a report that under-scores itself, and a
+        # baseline gate that can pass on the subset.
+        results = list(results)
+        if len(results) != len(chunk):
+            raise EvalError(
+                "runner.predict_batch returned %d results for a chunk of %d rows; every row "
+                "needs its own result" % (len(results), len(chunk)))
         elapsed = (time.perf_counter() - started) * 1000.0
         # A chunk is one call, so each of its rows waited all of `elapsed`; the split figure is a
         # throughput share, not a latency, and putting the two in one list made a batched run
